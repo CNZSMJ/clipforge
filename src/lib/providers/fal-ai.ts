@@ -225,7 +225,11 @@ export class FalAIProvider extends BaseProvider {
     // Build strictly from the endpoint's schema: the fal image families disagree on both the
     // image_size shape (object vs preset vs three literal strings) and on whether seed /
     // negative_prompt / num_images exist at all.
-    const { body } = buildFalImageRequest({
+    // NOTE: the resolved modelId must be used for the submit URL and the task id — the builder
+    // reroutes to a sibling endpoint (edit <-> text-to-image) and the body it produced only matches
+    // THAT endpoint. Submitting the original id with the sibling's body is what produced fal's
+    // "422 missing image_urls".
+    const { modelId, body } = buildFalImageRequest({
       modelId: options.modelId,
       prompt: options.prompt,
       width: options.width,
@@ -242,7 +246,7 @@ export class FalAIProvider extends BaseProvider {
 
     // submit async task
     const submitResponse = await this.request<FalSubmitResponse>(
-      `/${options.modelId}`,
+      `/${modelId}`,
       { method: 'POST', body }
     )
 
@@ -253,7 +257,7 @@ export class FalAIProvider extends BaseProvider {
     }
     rememberFalQueueUrls(submitResponse.request_id, submitResponse as never)
     // getTaskStatus needs the "modelId::requestId" format to locate the query endpoint; assemble it here before polling
-    const taskId = `${options.modelId}::${submitResponse.request_id}`
+    const taskId = `${modelId}::${submitResponse.request_id}`
     const finalStatus = await this.pollTaskStatus(taskId, {
       interval: 2000,
     })

@@ -167,3 +167,54 @@ describe("platform-rejected submissions", () => {
     expect(falImageSibling("fal-ai/veo3", true)).toBeUndefined();
   });
 });
+
+describe("generateImage submits to the RESOLVED endpoint", () => {
+  // Regression: the builder reroutes edit <-> text-to-image, and the body it produced only matches
+  // that sibling. Submitting the original id with the sibling's body produced fal's
+  // "422 missing image_urls" (task id showed /edit, body carried no image_urls).
+  it("posts to the text-to-image sibling and keeps its task id when there is no reference", async () => {
+    const provider = new FalAIProvider({ name: "fal-ai", apiKey: "k", baseUrl: "https://example.com" });
+    const paths: string[] = [];
+    vi.spyOn(provider as unknown as { request: (p: string, i?: { method?: string }) => Promise<unknown> }, "request")
+      .mockImplementation(async (path: string, init?: { method?: string }) => {
+        paths.push(path);
+        if (init?.method === "POST") return { request_id: "r1" };
+        if (path.endsWith("/status")) return { status: "COMPLETED", request_id: "r1" };
+        return { images: [{ url: "https://cdn.example/out.png" }] };
+      });
+    const result = await provider.generateImage({
+      modelId: "openai/gpt-image-2.5/sunburst/edit",
+      mode: "text-to-image",
+      prompt: "a dusty tea set",
+      width: 1024,
+      height: 1024,
+    });
+    expect(paths[0]).toBe("/openai/gpt-image-2.5/sunburst/text-to-image");
+    expect(paths.some((p) => p.startsWith("/openai/gpt-image-2.5/sunburst/text-to-image::"))).toBe(false);
+    expect("imageUrls" in result && result.imageUrls[0]).toBe("https://cdn.example/out.png");
+  });
+
+  it("posts to the edit sibling when a reference is supplied", async () => {
+    const provider = new FalAIProvider({ name: "fal-ai", apiKey: "k", baseUrl: "https://example.com" });
+    let submitted: { path: string; body?: Record<string, unknown> } | undefined;
+    vi.spyOn(provider as unknown as { request: (p: string, i?: { method?: string; body?: Record<string, unknown> }) => Promise<unknown> }, "request")
+      .mockImplementation(async (path: string, init?: { method?: string; body?: Record<string, unknown> }) => {
+        if (init?.method === "POST") {
+          submitted = { path, body: init.body };
+          return { request_id: "r2" };
+        }
+        if (path.endsWith("/status")) return { status: "COMPLETED", request_id: "r2" };
+        return { images: [{ url: "https://cdn.example/out2.png" }] };
+      });
+    await provider.generateImage({
+      modelId: "openai/gpt-image-2.5/sunburst/text-to-image",
+      mode: "image-to-image",
+      prompt: "keep the product",
+      width: 1024,
+      height: 1024,
+      referenceImageUrl: "https://cdn.example/product.png",
+    });
+    expect(submitted?.path).toBe("/openai/gpt-image-2.5/sunburst/edit");
+    expect(submitted?.body?.image_urls).toEqual(["https://cdn.example/product.png"]);
+  });
+});
