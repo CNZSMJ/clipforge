@@ -11,7 +11,7 @@ import { assets, generationReviews } from "@/lib/db/schema";
 import { probeMedia } from "@/lib/media-probe";
 import { createProvider } from "@/lib/providers";
 import { ProviderError } from "@/lib/providers/base";
-import { resolveUploadFilePath, toRemoteUsableImage } from "@/lib/remote-image";
+import { resolveUploadFilePath, toProviderImage } from "@/lib/remote-image";
 import {
   buildVideoRepairPreview,
   sanitizeTimedKeyframes,
@@ -135,7 +135,7 @@ async function executeRepair(projectId: string, body: RepairRequest) {
     const extraImages: string[] = [];
     for (const keyframe of preview.summary.keyframes) {
       const asset = context.projectAssets.find((row) => row.id === keyframe.assetId);
-      const usable = asset?.filePath ? await toRemoteUsableImage(asset.filePath) : undefined;
+      const usable = asset?.filePath ? await toProviderImage(asset.filePath, provider) : undefined;
       if (!usable) throw new Error(`时间锚点 ${keyframe.assetId} 无法安全传给模型，未提交付费任务`);
       extraImages.push(usable);
     }

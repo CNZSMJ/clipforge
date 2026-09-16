@@ -468,7 +468,10 @@ export class FalAIProvider extends BaseProvider {
         provider: this.name,
       },
       {
-        id: 'openai/gpt-image-2/image-to-image',
+        // Verified against the endpoint's own OpenAPI: the edit route is `/edit`.
+        // `openai/gpt-image-2/image-to-image` does not exist — submitting to it returned a request
+        // id and a COMPLETED status, but its result URL 404s with "Path /image-to-image not found".
+        id: 'openai/gpt-image-2/edit',
         name: 'GPT Image 2 Edit',
         description: 'GPT Image 2 编辑，精确局部重绘/扩图，适合商品保真',
         modes: ['image-to-image'],

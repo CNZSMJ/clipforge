@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createProvider } from "@/lib/providers";
-import { toRemoteUsableImage } from "@/lib/remote-image";
+import { toProviderImage } from "@/lib/remote-image";
 import { apiError, errText } from "@/lib/api-error";
 
 // AI image generation
@@ -22,9 +22,11 @@ export async function POST(req: NextRequest) {
     // For image-to-image mode, convert local reference images to data URIs.
     // imageUrls (plural) feeds multi-reference edits (e.g. character sheet + product photo);
     // the array order is preserved so prompts can cite references by position.
-    const referenceImageUrl = await toRemoteUsableImage(imageUrl);
+    // Stage local files on the provider's CDN (fal) rather than inlining base64 — fal's docs call
+    // data URIs the fallback that "inflates the request size significantly".
+    const referenceImageUrl = await toProviderImage(imageUrl, provider);
     const referenceImageUrls = Array.isArray(imageUrls) && imageUrls.length > 0
-      ? (await Promise.all((imageUrls as string[]).map(toRemoteUsableImage))).filter((u): u is string => !!u)
+      ? (await Promise.all((imageUrls as string[]).map((u) => toProviderImage(u, provider)))).filter((u): u is string => !!u)
       : undefined;
 
     const result = await provider.generateImage({
