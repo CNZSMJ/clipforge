@@ -49,6 +49,31 @@ interface FalResultResponse {
   [key: string]: unknown
 }
 
+/**
+ * Exact queue URLs fal returned for a request id, captured at submit time.
+ *
+ * fal's response/status URLs are authoritative — for `fal-ai/flux/schnell` fal answers with
+ * `fal-ai/flux/requests/<id>`, i.e. the app path, not the endpoint path. They are handed back
+ * once, at submit, so remember them for the life of the process; a restarted server falls back to
+ * the derivation below, which is correct for every app fal currently exposes.
+ */
+const falQueueUrls = new Map<string, { statusUrl?: string; responseUrl?: string }>()
+
+function rememberFalQueueUrls(requestId: string, payload: { status_url?: unknown; response_url?: unknown }): void {
+  if (!requestId) return
+  falQueueUrls.set(requestId, {
+    statusUrl: typeof payload.status_url === 'string' ? payload.status_url : undefined,
+    responseUrl: typeof payload.response_url === 'string' ? payload.response_url : undefined,
+  })
+  if (falQueueUrls.size > 500) {
+    // bounded: drop the oldest entries so a long-lived process cannot grow without limit
+    for (const key of falQueueUrls.keys()) {
+      falQueueUrls.delete(key)
+      if (falQueueUrls.size <= 400) break
+    }
+  }
+}
+
 // ==================== request building ====================
 
 /** fal's storage control plane (upload staging) is a separate host from the model queue. */
@@ -67,6 +92,21 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   '.wav': 'audio/wav',
   '.m4a': 'audio/mp4',
   '.aac': 'audio/aac',
+}
+
+/**
+ * fal's queue endpoints live under the APP path, not the full endpoint id.
+ *
+ * A submit to `fal-ai/flux/schnell` answers:
+ *   status_url = https://queue.fal.run/fal-ai/flux/requests/<id>/status
+ * i.e. only the first two path segments (owner/app) are part of the request URL. Polling the full
+ * endpoint id answers 405 Method Not Allowed, which surfaced as "任务状态查询连续失败 5 次" for
+ * every fal model with a variant path (nearly all of them) — the submission was billed, then
+ * every poll was rejected.
+ */
+export function falQueueAppPath(modelId: string): string {
+  const segments = modelId.split('/').filter(Boolean)
+  return segments.length <= 2 ? segments.join('/') : segments.slice(0, 2).join('/')
 }
 
 function mimeTypeForFile(fileName: string): string {
@@ -218,6 +258,7 @@ export class FalAIProvider extends BaseProvider {
     if (!submitResponse.request_id) {
       throw new ProviderError('未返回请求ID', 'NO_REQUEST_ID', this.name)
     }
+    rememberFalQueueUrls(submitResponse.request_id, submitResponse as never)
     // getTaskStatus needs the "modelId::requestId" format to locate the query endpoint; assemble it here before polling
     const taskId = `${options.modelId}::${submitResponse.request_id}`
     const finalStatus = await this.pollTaskStatus(taskId, {
@@ -258,6 +299,7 @@ export class FalAIProvider extends BaseProvider {
     if (!submitResponse.request_id) {
       throw new ProviderError('未返回请求ID', 'NO_REQUEST_ID', this.name)
     }
+    rememberFalQueueUrls(submitResponse.request_id, submitResponse as never)
     // getTaskStatus needs the "modelId::requestId" format to locate the query endpoint
     return { taskId: `${modelId}::${submitResponse.request_id}`, modelId }
   }
@@ -324,9 +366,11 @@ export class FalAIProvider extends BaseProvider {
   async getTaskStatus(taskId: string): Promise<TaskStatus> {
     // fal.ai taskId format: "modelId::requestId"
     const [modelId, requestId] = this.parseTaskId(taskId)
+    // Queue polling hangs off the APP path, not the full endpoint id — see falQueueAppPath.
+    const queuePath = falQueueAppPath(modelId)
 
     const statusResponse = await this.request<FalStatusResponse>(
-      `/${modelId}/requests/${requestId}/status`,
+      `/${queuePath}/requests/${requestId}/status`,
       {
         // use fal.ai status query baseUrl
         headers: {},
@@ -343,13 +387,57 @@ export class FalAIProvider extends BaseProvider {
 
     // fetch the result once the task completes
     if (status === 'completed') {
-      const result = await this.request<FalResultResponse>(
-        `/${modelId}/requests/${requestId}`
-      )
+      // Prefer the URL fal itself handed back (at submit, or on this status response) — it is
+      // authoritative. The derived app path is the fallback.
+      const responseUrl =
+        falQueueUrls.get(requestId)?.responseUrl ||
+        (typeof statusResponse.response_url === 'string' ? statusResponse.response_url : '')
+      const derivedPath = `/${queuePath}/requests/${requestId}`
+      let result: FalResultResponse
+      if (!responseUrl) {
+        result = await this.request<FalResultResponse>(derivedPath)
+      } else {
+        try {
+          result = await this.fetchAbsolute<FalResultResponse>(responseUrl)
+        } catch {
+          // fal can hand back a response URL its own edge rejects — observed live on
+          // openai/gpt-image-2/image-to-image, where it answers 404 "Path /image-to-image not
+          // found". Try the derived path so a working app is never blocked by a stale URL.
+          try {
+            result = await this.request<FalResultResponse>(derivedPath)
+          } catch {
+            throw new ProviderError(
+              `平台未返回结果地址（模型 ${modelId}）：fal 拒绝了它自己给出的 response_url。` +
+                '该任务已在云端完成并计费，但结果无法取回——请在设置里换一个生图/生视频模型后重试。',
+              'RESULT_URL_REJECTED',
+              this.name
+            )
+          }
+        }
+      }
       taskStatus.result = this.parseResult(taskId, result, modelId)
     }
 
     return taskStatus
+  }
+
+  /**
+   * GET an absolute URL outside the configured baseUrl.
+   * fal answers status queries with fully-qualified response URLs; following them keeps the
+   * provider working even if the queue's path scheme changes.
+   */
+  private async fetchAbsolute<T>(url: string): Promise<T> {
+    const res = await fetch(url, { headers: { ...this.getAuthHeaders() } })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new ProviderError(
+        `API 请求失败: ${res.status} ${res.statusText} ${text.slice(0, 200)}`,
+        'API_ERROR',
+        this.name,
+        res.status
+      )
+    }
+    return (await res.json()) as T
   }
 
   /**
