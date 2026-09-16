@@ -16,6 +16,7 @@ import type {
   Model,
   MediaType,
 } from './types'
+import { buildFalImageRequest } from './fal-image-params'
 import {
   getFalVideoSpec,
   falFrameSibling,
@@ -203,54 +204,27 @@ export class FalAIProvider extends BaseProvider {
   }
 
   /**
-   * Generate an image
+   * Generate an image (submit + poll).
+   * The request body is derived from the endpoint's own schema — see fal-image-params.ts.
    */
   async generateImage(options: ImageOptions): Promise<ImageResult> {
-    const w = options.width ?? 0
-    const h = options.height ?? 0
-    // GPT Image series does not accept negative_prompt / guidance / steps
-    const isGptImage = options.modelId.includes('gpt-image')
-    // gpt-image-1.5: image_size only accepts string enum values (1024x1024 / 1536x1024 / 1024x1536)
-    const isGptImage15 = options.modelId.includes('gpt-image-1.5')
-    // gpt-image-2 / 2.5: image_size accepts {width,height} (multiples of 16) or a preset name
-    const isGptImage2 = options.modelId.includes('gpt-image-2')
-    // edit/image-to-image endpoints: gpt-image-1.5/edit and seedream/edit use image_urls; gpt-image-2/image-to-image also supports image_urls
-    const isEdit = options.modelId.includes('/edit') || options.modelId.includes('/image-to-image')
-
-    const round16 = (n: number) => Math.max(16, Math.round(n / 16) * 16)
-    const imageSize = (() => {
-      if (isGptImage15) {
-        if (w > h) return '1536x1024'
-        if (h > w) return '1024x1536'
-        return '1024x1024'
-      }
-      if (!w || !h) return undefined
-      // gpt-image-2 requires width and height to be multiples of 16
-      return isGptImage2
-        ? { width: round16(w), height: round16(h) }
-        : { width: w, height: h }
-    })()
-
-    const body = {
+    // Build strictly from the endpoint's schema: the fal image families disagree on both the
+    // image_size shape (object vs preset vs three literal strings) and on whether seed /
+    // negative_prompt / num_images exist at all.
+    const { body } = buildFalImageRequest({
+      modelId: options.modelId,
       prompt: options.prompt,
-      negative_prompt: isGptImage ? undefined : options.negativePrompt,
-      image_size: imageSize,
-      num_images: options.count ?? 1,
-      guidance_scale: isGptImage ? undefined : options.guidanceScale,
-      num_inference_steps: isGptImage ? undefined : options.steps,
-      // no gpt-image endpoint declares a seed — sending it is an unknown field
-      seed: isGptImage ? undefined : options.seed,
-      // edit/image-to-image: multi-image endpoints use image_urls array; regular image-to-image uses image_url
-      ...((options.referenceImageUrls?.length || options.referenceImageUrl) && isEdit && {
-        image_urls: options.referenceImageUrls?.length
-          ? options.referenceImageUrls
-          : [options.referenceImageUrl!],
-      }),
-      ...(options.referenceImageUrl && !options.referenceImageUrls?.length && !isEdit && {
-        image_url: options.referenceImageUrl,
-      }),
-      ...options.extra,
-    }
+      width: options.width,
+      height: options.height,
+      count: options.count,
+      seed: options.seed,
+      steps: options.steps,
+      guidanceScale: options.guidanceScale,
+      negativePrompt: options.negativePrompt,
+      referenceImageUrl: options.referenceImageUrl,
+      referenceImageUrls: options.referenceImageUrls,
+      extra: options.extra,
+    })
 
     // submit async task
     const submitResponse = await this.request<FalSubmitResponse>(
