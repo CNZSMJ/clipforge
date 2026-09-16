@@ -45,6 +45,44 @@ const FORM_PRESETS = {
 } as const;
 type FormId = keyof typeof FORM_PRESETS;
 
+/**
+ * Phone photos are routinely 10-25MB and a 5-image album blows past any request cap, while the
+ * models never need more than ~2K on the long edge for a keyframe. Shrink in the browser before
+ * uploading so a normal album fits the route's 20MB-per-file limit, and keep the original
+ * untouched whenever shrinking would not actually help.
+ */
+const MAX_UPLOAD_EDGE = 2048;
+const MAX_UPLOAD_BYTES = 18 * 1024 * 1024; // stay under the route's 20MB/file check
+
+async function shrinkForUpload(file: File): Promise<File> {
+  // gif/svg are either animated or vector — re-encoding them through a canvas would destroy them
+  if (!file.type.startsWith("image/") || file.type === "image/gif" || file.type === "image/svg+xml") {
+    return file;
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_UPLOAD_EDGE / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size <= MAX_UPLOAD_BYTES) {
+      bitmap.close?.();
+      return file;
+    }
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { bitmap.close?.(); return file; }
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file; // unsupported decoder → let the server decide
+  }
+}
+
 interface PickedImage {
   id: string;
   url: string;
@@ -387,10 +425,17 @@ export default function StartPage() {
     setStageIdx(1);
     setStage(t("stageUpload"));
     const fd = new FormData();
-    images.forEach((i) => fd.append("files", i.file));
+    for (const image of await Promise.all(images.map((i) => shrinkForUpload(i.file)))) {
+      fd.append("files", image);
+    }
     fd.append("projectId", project.id);
     const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
-    if (!uploadRes.ok) throw new Error(t("errUpload"));
+    if (!uploadRes.ok) {
+      // surface the server's own reason (too large / unsupported type). A blanket "network" message
+      // sent users chasing a connection problem when the real answer was a 20MB file limit.
+      const errData = await uploadRes.json().catch(() => ({}));
+      throw new Error(errData.error || t("errUpload"));
+    }
     const { paths } = await uploadRes.json();
     await fetch(`/api/project/${project.id}`, {
       method: "PATCH",
