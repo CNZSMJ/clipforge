@@ -15,4 +15,10 @@ describe("falQueueAppPath", () => {
   it("leaves a two-segment id untouched", () => {
     expect(falQueueAppPath("fal-ai/veo3")).toBe("fal-ai/veo3");
   });
+
+  // Router-style apps own a third segment (same rule as axiom-azimo's Go router)
+  it("keeps three segments for workflows/ and comfy/ apps", () => {
+    expect(falQueueAppPath("workflows/my-flow/run")).toBe("workflows/my-flow/run");
+    expect(falQueueAppPath("comfy/my-graph/v1")).toBe("comfy/my-graph/v1");
+  });
 });

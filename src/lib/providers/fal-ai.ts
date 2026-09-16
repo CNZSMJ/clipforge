@@ -106,7 +106,11 @@ const MIME_BY_EXTENSION: Record<string, string> = {
  */
 export function falQueueAppPath(modelId: string): string {
   const segments = modelId.split('/').filter(Boolean)
-  return segments.length <= 2 ? segments.join('/') : segments.slice(0, 2).join('/')
+  // Router-style apps own a third segment: the queue serves /workflows/<name>/requests/... and
+  // /comfy/<name>/requests/..., not /workflows/requests/... (same rule as the Go router in
+  // axiom-azimo: applicationSegments = 2, 3 for workflows/comfy).
+  const applicationSegments = segments[0] === 'workflows' || segments[0] === 'comfy' ? 3 : 2
+  return segments.slice(0, applicationSegments).join('/')
 }
 
 function mimeTypeForFile(fileName: string): string {
@@ -392,28 +396,34 @@ export class FalAIProvider extends BaseProvider {
       const responseUrl =
         falQueueUrls.get(requestId)?.responseUrl ||
         (typeof statusResponse.response_url === 'string' ? statusResponse.response_url : '')
+      // Result URL candidates, in the order fal's own behaviour proves out:
+      //   1. `{app}/requests/{id}`            — what azimo's router uses and what fal returns
+      //   2. `{app}/requests/{id}/response`   — the suffix printed in fal's async-inference docs
+      //   3. the absolute response_url        — fal's authoritative pointer, when it is usable
       const derivedPath = `/${queuePath}/requests/${requestId}`
-      let result: FalResultResponse
-      if (!responseUrl) {
-        result = await this.request<FalResultResponse>(derivedPath)
-      } else {
+      const candidates: Array<() => Promise<FalResultResponse>> = [
+        () => this.request<FalResultResponse>(derivedPath),
+        () => this.request<FalResultResponse>(`${derivedPath}/response`),
+        ...(responseUrl ? [() => this.fetchAbsolute<FalResultResponse>(responseUrl)] : []),
+      ]
+      let result: FalResultResponse | undefined
+      let lastError: unknown
+      for (const attempt of candidates) {
         try {
-          result = await this.fetchAbsolute<FalResultResponse>(responseUrl)
-        } catch {
-          // fal can hand back a response URL its own edge rejects — observed live on
-          // openai/gpt-image-2/image-to-image, where it answers 404 "Path /image-to-image not
-          // found". Try the derived path so a working app is never blocked by a stale URL.
-          try {
-            result = await this.request<FalResultResponse>(derivedPath)
-          } catch {
-            throw new ProviderError(
-              `平台未返回结果地址（模型 ${modelId}）：fal 拒绝了它自己给出的 response_url。` +
-                '该任务已在云端完成并计费，但结果无法取回——请在设置里换一个生图/生视频模型后重试。',
-              'RESULT_URL_REJECTED',
-              this.name
-            )
-          }
+          result = await attempt()
+          break
+        } catch (error) {
+          lastError = error
         }
+      }
+      if (!result) {
+        throw new ProviderError(
+          `取回结果失败（模型 ${modelId}）：fal 的队列接口没有返回可用结果（任务 ${requestId} 状态为 COMPLETED）。` +
+            '该任务已在云端完成并计费，但结果地址不可用——请在设置里换一个生图/生视频模型后重试。' +
+            `（最后一个错误：${lastError instanceof Error ? lastError.message : String(lastError)}）`,
+          'RESULT_URL_REJECTED',
+          this.name
+        )
       }
       taskStatus.result = this.parseResult(taskId, result, modelId)
     }
