@@ -192,6 +192,14 @@ export function buildFalImageRequest(options: {
     : options.referenceImageUrl
       ? [options.referenceImageUrl]
       : undefined
+  if (refs && !spec.referenceField) {
+    // Dropping the reference silently is the worst outcome: the caller asked for a product-faithful
+    // render and would get an invented one. Fail loudly and name the endpoint to switch to.
+    throw new Error(
+      `模型 ${options.modelId} 是文生图端点，不接受参考图；请改用同档位的编辑端点（.../edit）。` +
+        ' 否则商品图会被忽略，生成的画面与实物不符。'
+    )
+  }
   if (refs && spec.referenceField === 'image_urls') body.image_urls = refs
   else if (refs && spec.referenceField === 'image_url') body.image_url = refs[0]
 

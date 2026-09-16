@@ -25,8 +25,10 @@ const common = {
   steps: 28,
   guidanceScale: 3.5,
   negativePrompt: "blurry",
-  referenceImageUrl: "https://cdn.example/product.png",
 };
+
+/** only the /edit endpoints accept a reference, so it is opt-in per test */
+const withRef = { referenceImageUrl: "https://cdn.example/product.png" };
 
 function assertDeclaredOnly(modelId: string, body: Record<string, unknown>) {
   const declared = new Set(DECLARED[modelId]);
@@ -37,7 +39,7 @@ function assertDeclaredOnly(modelId: string, body: Record<string, unknown>) {
 
 describe("fal image request building", () => {
   it("gpt-image-2.5/edit sends the required image_urls and nothing gpt-image does not declare", () => {
-    const { body } = buildFalImageRequest({ ...common, modelId: "openai/gpt-image-2.5/sunburst/edit" });
+    const { body } = buildFalImageRequest({ ...common, ...withRef, modelId: "openai/gpt-image-2.5/sunburst/edit" });
     expect(body.image_urls).toEqual(["https://cdn.example/product.png"]);
     expect(body.image_size).toEqual({ width: 1920, height: 1088 }); // snapped to a multiple of 16
     expect(body.num_images).toBe(1);
@@ -95,9 +97,19 @@ describe("fal image request building", () => {
 
   it("falls back to preset snapping and an /edit reference field for custom endpoints", () => {
     expect(getFalImageSpec("acme/custom/edit").referenceField).toBe("image_urls");
-    const { body } = buildFalImageRequest({ ...common, modelId: "acme/custom/edit" });
+    const { body } = buildFalImageRequest({ ...common, ...withRef, modelId: "acme/custom/edit" });
     expect(body.image_urls).toEqual(["https://cdn.example/product.png"]);
     expect(body.image_size).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it("refuses to silently drop a reference on a text-to-image endpoint", () => {
+    expect(() =>
+      buildFalImageRequest({ ...common, ...withRef, modelId: "openai/gpt-image-2.5/sunburst/text-to-image" })
+    ).toThrow(/文生图端点/);
+    // ...and stays quiet when there is no reference to drop
+    expect(() =>
+      buildFalImageRequest({ modelId: "openai/gpt-image-2.5/sunburst/text-to-image", prompt: "a red cup" })
+    ).not.toThrow();
   });
 
   it("maps a requested aspect onto the preset family", () => {
