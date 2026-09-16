@@ -16,6 +16,14 @@ import type {
   Model,
   MediaType,
 } from './types'
+import {
+  getFalVideoSpec,
+  falFrameSibling,
+  nearestFalAspectRatio,
+  nearestFalDuration,
+  nearestFalResolution,
+  type FalVideoSpec,
+} from './fal-video-params'
 
 // ==================== fal.ai API response types ====================
 
@@ -39,6 +47,93 @@ interface FalResultResponse {
   seed?: number
   timings?: { inference?: number }
   [key: string]: unknown
+}
+
+// ==================== request building ====================
+
+/** fal's storage control plane (upload staging) is a separate host from the model queue. */
+const FAL_STORAGE_BASE = 'https://rest.alpha.fal.ai'
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+}
+
+function mimeTypeForFile(fileName: string): string {
+  const dot = fileName.lastIndexOf('.')
+  const ext = dot === -1 ? '' : fileName.slice(dot).toLowerCase()
+  return MIME_BY_EXTENSION[ext] ?? 'application/octet-stream'
+}
+
+/**
+ * Build the endpoint-specific request body for a fal video model.
+ *
+ * Exported for tests: the frame/reference field names differ per family and a wrong name is
+ * dropped upstream, so this mapping is the part worth pinning down.
+ */
+export function buildFalVideoRequest(options: VideoOptions): {
+  modelId: string
+  body: Record<string, unknown>
+} {
+  // models that support audio can describe it directly in the prompt
+  let prompt = options.prompt
+  if (options.audioEnabled && options.voiceover) {
+    prompt = `${options.prompt}. The narrator says: "${options.voiceover}"`
+  }
+
+  // remap to the sibling endpoint when the frames we have do not fit this one
+  const modelId = falFrameSibling(options.modelId, Boolean(options.firstFrameUrl)) ?? options.modelId
+  const spec: FalVideoSpec = getFalVideoSpec(modelId)
+
+  const duration = nearestFalDuration(options.duration, spec.durations) ?? options.duration
+  const referenceImages = options.referenceImageUrls?.length ? options.referenceImageUrls : undefined
+  const referenceVideos = options.referenceVideoUrls?.length ? options.referenceVideoUrls : undefined
+  const referenceAudios = options.referenceAudioUrls?.length ? options.referenceAudioUrls : undefined
+
+  const body: Record<string, unknown> = {
+    prompt,
+    negative_prompt: options.negativePrompt,
+    seed: options.seed,
+    ...(spec.usesResolution && {
+      resolution: nearestFalResolution(options.width, options.height, spec.resolutions),
+    }),
+    ...(spec.usesAspectRatio && {
+      aspect_ratio: nearestFalAspectRatio(options.width, options.height),
+    }),
+    ...(duration != null && { duration: spec.durationAsString ? `${duration}s` : duration }),
+    // first/last frame: the field name is per family — never assume image_url
+    ...(options.firstFrameUrl && spec.firstFrame && { [spec.firstFrame]: options.firstFrameUrl }),
+    ...(options.lastFrameUrl && spec.lastFrame && { [spec.lastFrame]: options.lastFrameUrl }),
+    // multimodal reference packs
+    ...(referenceImages && spec.referenceImages && { [spec.referenceImages]: referenceImages }),
+    ...(referenceVideos && spec.referenceVideos && { [spec.referenceVideos]: referenceVideos }),
+    ...(referenceAudios && spec.referenceAudio && { [spec.referenceAudio]: referenceAudios }),
+    ...(spec.referenceTask && { task: spec.referenceTask }),
+    // legacy single reference video, only when the endpoint has no reference-video array
+    ...(options.referenceVideoUrl && !spec.referenceVideos && { video_url: options.referenceVideoUrl }),
+    ...(spec.audio && options.audioEnabled != null && { [spec.audio]: Boolean(options.audioEnabled) }),
+    ...(spec.usesGuidanceScale && options.guidanceScale != null && {
+      guidance_scale: options.guidanceScale,
+    }),
+    ...options.extra,
+  }
+
+  // drop undefined so fal never sees an explicit null it would reject
+  for (const key of Object.keys(body)) {
+    if (body[key] === undefined) delete body[key]
+  }
+
+  return { modelId, body }
 }
 
 // ==================== Provider implementation ====================
@@ -133,61 +228,93 @@ export class FalAIProvider extends BaseProvider {
   }
 
   /**
-   * Generate a video
+   * Generate a video (submit + wait).
+   * Prefer submitVideoTask + waitForTask when the caller persists the task id first.
    */
   async generateVideo(options: VideoOptions): Promise<VideoResult> {
-    // if audio is enabled and a voiceover script is provided, merge it into the prompt
-    let prompt = options.prompt
-    if (options.audioEnabled && options.voiceover) {
-      // models that support audio (e.g., Veo 3, MiniMax) can describe audio directly in the prompt
-      prompt = `${options.prompt}. The narrator says: "${options.voiceover}"`
-    }
+    const { taskId } = await this.submitVideoTask(options)
+    const finalStatus = await this.waitForTask(taskId, { interval: 5000 })
+    return this.requireResult(finalStatus.result) as VideoResult
+  }
 
-    const body = {
-      prompt,
-      negative_prompt: options.negativePrompt,
-      video_size: options.width && options.height
-        ? { width: options.width, height: options.height }
-        : undefined,
-      duration: options.duration,
-      fps: options.fps,
-      motion_strength: options.motionStrength,
-      guidance_scale: options.guidanceScale,
-      seed: options.seed,
-      // image-to-video mode
-      ...(options.firstFrameUrl && {
-        image_url: options.firstFrameUrl,
-      }),
-      // video-to-video mode
-      ...(options.referenceVideoUrl && {
-        video_url: options.referenceVideoUrl,
-      }),
-      // audio-related parameters (supported by some models)
-      ...(options.audioEnabled && {
-        audio: true,
-        ...(options.audioPrompt && { audio_prompt: options.audioPrompt }),
-      }),
-      ...options.extra,
-    }
-
-    // submit async task
-    const submitResponse = await this.request<FalSubmitResponse>(
-      `/${options.modelId}`,
-      { method: 'POST', body }
-    )
+  /**
+   * Submit a video task without waiting for the result (two-phase mode).
+   *
+   * The body is built from the endpoint's own schema (buildFalVideoRequest): fal rejects or
+   * silently drops fields that do not belong to the target model, which is how first/last-frame
+   * chaining and product-reference packs break when one generic body is reused across families.
+   * The model is remapped to its sibling endpoint BEFORE the billable call when the frames we
+   * have do not match the endpoint (e.g. a text-to-video id with a first frame supplied).
+   */
+  async submitVideoTask(options: VideoOptions): Promise<{ taskId: string; modelId: string }> {
+    const { modelId, body } = buildFalVideoRequest(options)
+    const submitResponse = await this.request<FalSubmitResponse>(`/${modelId}`, {
+      method: 'POST',
+      body,
+    })
 
     // guard: submit occasionally returns no request_id; without this, taskId becomes "model::undefined",
     // parseTaskId does not throw, but the subsequent status endpoint returns 404
     if (!submitResponse.request_id) {
       throw new ProviderError('未返回请求ID', 'NO_REQUEST_ID', this.name)
     }
-    // getTaskStatus needs the "modelId::requestId" format to locate the query endpoint; assemble it here before polling
-    const taskId = `${options.modelId}::${submitResponse.request_id}`
-    const finalStatus = await this.pollTaskStatus(taskId, {
-      interval: 5000,
-    })
+    // getTaskStatus needs the "modelId::requestId" format to locate the query endpoint
+    return { taskId: `${modelId}::${submitResponse.request_id}`, modelId }
+  }
 
-    return this.requireResult(finalStatus.result) as VideoResult
+  /**
+   * Upload a local file to fal's CDN and return its public URL.
+   *
+   * fal accepts binary inputs (reference video/audio, chained frames read from the project
+   * workspace) by URL only. Per the fal Storage API: POST /storage/upload/initiate returns a
+   * short-lived signed URL plus the final CDN URL, then the bytes are PUT to the signed URL.
+   * The storage control plane lives on a different host than the model queue, so it does not go
+   * through this.request (which prefixes the queue baseUrl).
+   */
+  async uploadLocalMedia(filePath: string): Promise<string> {
+    const { readFile } = await import('fs/promises')
+    const { basename } = await import('path')
+    const bytes = await readFile(filePath)
+    const fileName = basename(filePath)
+    const contentType = mimeTypeForFile(fileName)
+
+    const initiated = await fetch(`${FAL_STORAGE_BASE}/storage/upload/initiate`, {
+      method: 'POST',
+      headers: { ...this.getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content_type: contentType, file_name: fileName }),
+    })
+    if (!initiated.ok) {
+      const text = await initiated.text().catch(() => '')
+      throw new ProviderError(
+        `参考素材上传失败: ${initiated.status} ${text.slice(0, 200)}`,
+        'UPLOAD_FAILED',
+        this.name,
+        initiated.status
+      )
+    }
+    const { upload_url: uploadUrl, file_url: fileUrl } = (await initiated.json()) as {
+      upload_url?: string
+      file_url?: string
+    }
+    if (!uploadUrl || !fileUrl) {
+      throw new ProviderError('参考素材上传成功但未返回地址', 'UPLOAD_FAILED', this.name)
+    }
+
+    const put = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body: new Uint8Array(bytes),
+    })
+    if (!put.ok) {
+      const text = await put.text().catch(() => '')
+      throw new ProviderError(
+        `参考素材上传失败: ${put.status} ${text.slice(0, 200)}`,
+        'UPLOAD_FAILED',
+        this.name,
+        put.status
+      )
+    }
+    return fileUrl
   }
 
   /**

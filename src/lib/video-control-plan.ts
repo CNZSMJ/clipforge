@@ -1,5 +1,14 @@
 import { getVideoModelCapabilities } from "@/lib/model-capabilities";
 
+/**
+ * Providers whose video endpoints accept an unordered reference pack (images / video / audio)
+ * instead of — or in addition to — an ordered start/end frame pair.
+ */
+const REFERENCE_PACK_PROVIDERS = new Set(["atlas-cloud", "fal-ai"]);
+
+/** Providers that can carry an explicit reference pack *alongside* ordered keyframes. */
+const REFERENCE_ALONGSIDE_FRAMES_PROVIDERS = new Set(["volcengine"]);
+
 export const VIDEO_REFERENCE_ROLES = [
   "keyframe",
   "end-frame",
@@ -118,20 +127,20 @@ export function buildVideoControlPlan(input: {
   const hasIdentityPack = optional.some((item) => item.mediaType === "image" && item.required);
   const canUseVisualPack = capabilities.referenceImages === true;
   const canUseAudioReference = capabilities.referenceAudio === true;
-  // Identity/product fidelity wins over a hard end-frame on Atlas: reference mode can still
-  // carry that end frame as a target anchor, while plain continuity-only requests retain the
-  // provider's stronger native start/end-frame contract.
-  const isAtlasReferenceMode = input.provider === "atlas-cloud" && hasVisualPack && canUseVisualPack && (!input.lastFrameUrl || hasIdentityPack);
-  const canAttachAlongsideFrames = input.provider === "volcengine" && hasVisualPack && canUseVisualPack;
+  // Identity/product fidelity wins over a hard end-frame on reference-pack providers: reference
+  // mode can still carry that end frame as a target anchor, while plain continuity-only requests
+  // retain the provider's stronger native start/end-frame contract.
+  const isReferencePackMode = REFERENCE_PACK_PROVIDERS.has(input.provider) && hasVisualPack && canUseVisualPack && (!input.lastFrameUrl || hasIdentityPack);
+  const canAttachAlongsideFrames = REFERENCE_ALONGSIDE_FRAMES_PROVIDERS.has(input.provider) && hasVisualPack && canUseVisualPack;
 
   if (hasVisualPack && !canUseVisualPack) warnings.push("reference-pack-unsupported");
-  if (hasVisualPack && input.provider === "atlas-cloud" && canUseVisualPack && input.lastFrameUrl && !isAtlasReferenceMode) {
+  if (hasVisualPack && REFERENCE_PACK_PROVIDERS.has(input.provider) && canUseVisualPack && input.lastFrameUrl && !isReferencePackMode) {
     warnings.push("reference-pack-deferred-for-end-frame");
   }
   if (input.audioReferenceUrl && !canUseAudioReference) warnings.push("reference-audio-unsupported");
 
   let referenceInputs: VideoReferenceInput[] = [];
-  if (isAtlasReferenceMode) {
+  if (isReferencePackMode) {
     if (isNonEmpty(input.firstFrameUrl)) {
       referenceInputs.push({ url: input.firstFrameUrl, role: "keyframe", mediaType: "image", required: true });
     }
@@ -162,7 +171,7 @@ export function buildVideoControlPlan(input: {
     ? Number(isNonEmpty(input.firstFrameUrl)) + Number(isNonEmpty(input.lastFrameUrl))
     : 0;
   const promptSuffix = [referenceInstruction(referenceInputs, input.locale, frameImageCount), audioPrompt].filter(Boolean).join(input.locale === "zh" ? "。" : " ");
-  const strategy: VideoControlSummary["strategy"] = isAtlasReferenceMode || canAttachAlongsideFrames ? "reference-pack" : "keyframe";
+  const strategy: VideoControlSummary["strategy"] = isReferencePackMode || canAttachAlongsideFrames ? "reference-pack" : "keyframe";
   const referenceRoles = unique([
     ...(isNonEmpty(input.firstFrameUrl) ? ["keyframe" as const] : []),
     ...(isNonEmpty(input.lastFrameUrl) ? ["end-frame" as const] : []),
@@ -172,14 +181,14 @@ export function buildVideoControlPlan(input: {
   return {
     version: 1,
     strategy,
-    mode: isAtlasReferenceMode ? "video-to-video" : "image-to-video",
+    mode: isReferencePackMode ? "video-to-video" : "image-to-video",
     referenceRoles,
-    referenceCount: referenceInputs.length + (isAtlasReferenceMode ? 0 : Number(Boolean(input.firstFrameUrl)) + Number(Boolean(input.lastFrameUrl))),
+    referenceCount: referenceInputs.length + (isReferencePackMode ? 0 : Number(Boolean(input.firstFrameUrl)) + Number(Boolean(input.lastFrameUrl))),
     audioMode,
     voiceoverBound,
     warnings: unique(warnings),
-    ...(!isAtlasReferenceMode && isNonEmpty(input.firstFrameUrl) && { firstFrameUrl: input.firstFrameUrl }),
-    ...(!isAtlasReferenceMode && isNonEmpty(input.lastFrameUrl) && { lastFrameUrl: input.lastFrameUrl }),
+    ...(!isReferencePackMode && isNonEmpty(input.firstFrameUrl) && { firstFrameUrl: input.firstFrameUrl }),
+    ...(!isReferencePackMode && isNonEmpty(input.lastFrameUrl) && { lastFrameUrl: input.lastFrameUrl }),
     referenceInputs,
     promptSuffix,
     ...(audioPrompt && { audioPrompt }),

@@ -3,6 +3,9 @@ import type { GenerationQualityReport, ShotQualityContract } from "@/lib/generat
 import { getVideoModelCapabilities, type VideoModelCapabilities } from "@/lib/model-capabilities";
 import { sanitizeVideoControlSummary, type VideoControlSummary } from "@/lib/video-control-plan";
 
+/** Providers whose reference sibling can carry the source clip alongside the prompt. */
+const REFERENCE_VIDEO_PROVIDERS = new Set(["atlas-cloud", "fal-ai"]);
+
 export type RepairScope = "temporal" | "region";
 
 export interface RepairWindow {
@@ -197,7 +200,9 @@ export function buildVideoRepairPreview(input: {
   pricePerCall?: number;
 }): VideoRepairPreview {
   const initialCapabilities = getVideoModelCapabilities(input.model, input.supportsAudio, input.provider);
-  const effectiveModel = input.provider === "atlas-cloud" && initialCapabilities.referenceVideo === true
+  // Provider-agnostic: the model capability, not the vendor, decides whether the repair can run
+  // through the reference sibling (the source clip travels with the prompt).
+  const effectiveModel = REFERENCE_VIDEO_PROVIDERS.has(input.provider) && initialCapabilities.referenceVideo === true
     ? input.model.replace(/\/(?:text|image)-to-video$/, "/reference-to-video")
     : input.model;
   const capabilities = getVideoModelCapabilities(effectiveModel, input.supportsAudio, input.provider);
