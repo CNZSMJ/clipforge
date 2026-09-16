@@ -35,8 +35,12 @@ export const FAL_ONEKEY_MODELS = {
   llm: "google/gemini-2.5-flash",
   /** Product-image analysis (Vision) — same multimodal model. */
   vision: "google/gemini-2.5-flash",
-  /** Image generation: GPT Image 2. */
-  image: "openai/gpt-image-2",
+  /**
+   * Image generation: GPT Image 2.5 Sunburst Edit — the product-photo path feeds references, and
+   * the /edit routes are the ones that accept image_urls. Swap to `.../sunburst/text-to-image`
+   * for prompt-only work with no reference image.
+   */
+  image: "openai/gpt-image-2.5/sunburst/edit",
   /** Video generation: Seedance 2.5 image-to-video (the product photo becomes the first frame). */
   video: "bytedance/seedance-2.5/image-to-video",
 } as const;

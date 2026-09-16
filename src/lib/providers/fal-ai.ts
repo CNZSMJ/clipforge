@@ -212,7 +212,7 @@ export class FalAIProvider extends BaseProvider {
     const isGptImage = options.modelId.includes('gpt-image')
     // gpt-image-1.5: image_size only accepts string enum values (1024x1024 / 1536x1024 / 1024x1536)
     const isGptImage15 = options.modelId.includes('gpt-image-1.5')
-    // gpt-image-2: image_size accepts {width,height} (must be multiples of 16) or a preset name
+    // gpt-image-2 / 2.5: image_size accepts {width,height} (multiples of 16) or a preset name
     const isGptImage2 = options.modelId.includes('gpt-image-2')
     // edit/image-to-image endpoints: gpt-image-1.5/edit and seedream/edit use image_urls; gpt-image-2/image-to-image also supports image_urls
     const isEdit = options.modelId.includes('/edit') || options.modelId.includes('/image-to-image')
@@ -238,7 +238,8 @@ export class FalAIProvider extends BaseProvider {
       num_images: options.count ?? 1,
       guidance_scale: isGptImage ? undefined : options.guidanceScale,
       num_inference_steps: isGptImage ? undefined : options.steps,
-      seed: options.seed,
+      // no gpt-image endpoint declares a seed — sending it is an unknown field
+      seed: isGptImage ? undefined : options.seed,
       // edit/image-to-image: multi-image endpoints use image_urls array; regular image-to-image uses image_url
       ...((options.referenceImageUrls?.length || options.referenceImageUrl) && isEdit && {
         image_urls: options.referenceImageUrls?.length
@@ -458,7 +459,42 @@ export class FalAIProvider extends BaseProvider {
     // model list verified against the fal.ai platform (2026-03)
     const models: Model[] = [
       // ==================== image generation ====================
-      // OpenAI GPT Image 2 (fal endpoint: openai/gpt-image-2; strong prompt adherence, great product quality)
+      // OpenAI GPT Image 2.5 — Flare is the speed tier, Sunburst the precision tier. Endpoint ids
+      // verified against each endpoint's own OpenAPI; the /edit routes REQUIRE image_urls, and
+      // quality is an enum (auto|low|medium|high|xhigh|max, default high).
+      {
+        id: 'openai/gpt-image-2.5/sunburst/text-to-image',
+        name: 'GPT Image 2.5 Sunburst',
+        description: 'OpenAI 图像旗舰（精度优先），提示词遵循与细节保真最强，商品主图/海报首选',
+        modes: ['text-to-image'],
+        mediaType: 'image',
+        provider: this.name,
+      },
+      {
+        id: 'openai/gpt-image-2.5/flare/text-to-image',
+        name: 'GPT Image 2.5 Flare',
+        description: 'OpenAI 图像旗舰（速度优先），适合批量出图与快速迭代',
+        modes: ['text-to-image'],
+        mediaType: 'image',
+        provider: this.name,
+      },
+      {
+        id: 'openai/gpt-image-2.5/sunburst/edit',
+        name: 'GPT Image 2.5 Sunburst Edit',
+        description: 'GPT Image 2.5 编辑（精度优先），基于参考图重绘/换背景，商品保真首选',
+        modes: ['image-to-image'],
+        mediaType: 'image',
+        provider: this.name,
+      },
+      {
+        id: 'openai/gpt-image-2.5/flare/edit',
+        name: 'GPT Image 2.5 Flare Edit',
+        description: 'GPT Image 2.5 编辑（速度优先），适合批量改图',
+        modes: ['image-to-image'],
+        mediaType: 'image',
+        provider: this.name,
+      },
+      // OpenAI GPT Image 2 (previous generation, kept so existing selections keep working)
       {
         id: 'openai/gpt-image-2',
         name: 'GPT Image 2',
