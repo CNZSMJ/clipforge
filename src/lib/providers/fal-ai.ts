@@ -140,7 +140,21 @@ export function buildFalVideoRequest(options: VideoOptions): {
   const modelId = falFrameSibling(options.modelId, Boolean(options.firstFrameUrl)) ?? options.modelId
   const spec: FalVideoSpec = getFalVideoSpec(modelId)
 
-  const duration = nearestFalDuration(options.duration, spec.durations) ?? options.duration
+  if (options.firstFrameUrl && !spec.firstFrame) {
+    // Silently dropping the keyframe would turn an image-to-video shot into a text-to-video one
+    // that no longer matches the storyboard.
+    throw new Error(
+      `模型 ${modelId} 是文生视频端点，不接受首帧图；请改用同档位的图生视频端点（.../image-to-video）。` +
+        ' 否则这一镜会退化成纯文字生成，和分镜画面不一致。'
+    )
+  }
+
+  const snappedDuration = nearestFalDuration(options.duration, spec.durations) ?? options.duration
+  // endpoints that publish min/max instead of an enum (Hailuo 3.0: 5-15s) still need a legal value
+  const duration =
+    spec.durationRange && snappedDuration != null
+      ? Math.min(Math.max(snappedDuration, spec.durationRange[0]), spec.durationRange[1])
+      : snappedDuration
   const referenceImages = options.referenceImageUrls?.length ? options.referenceImageUrls : undefined
   const referenceVideos = options.referenceVideoUrls?.length ? options.referenceVideoUrls : undefined
   const referenceAudios = options.referenceAudioUrls?.length ? options.referenceAudioUrls : undefined
@@ -615,6 +629,35 @@ export class FalAIProvider extends BaseProvider {
         modes: ['image-to-video'],
         mediaType: 'video',
         provider: this.name,
+      },
+
+      // --- MiniMax Hailuo 3.0 (fal id hailuo-03; 2K, native stereo, 5-15s) ---
+      {
+        id: 'fal-ai/minimax/hailuo-03/text-to-video',
+        name: 'MiniMax Hailuo 3.0 (文生视频)',
+        description: '海螺 3.0，2K 原生立体声，4-15 秒，运动与物理表现强',
+        modes: ['text-to-video'],
+        mediaType: 'video',
+        provider: this.name,
+        supportsAudio: true,
+      },
+      {
+        id: 'fal-ai/minimax/hailuo-03/image-to-video',
+        name: 'MiniMax Hailuo 3.0 (图生视频)',
+        description: '海螺 3.0 图生视频，支持首帧+尾帧，2K 原生立体声',
+        modes: ['image-to-video'],
+        mediaType: 'video',
+        provider: this.name,
+        supportsAudio: true,
+      },
+      {
+        id: 'fal-ai/minimax/hailuo-03/reference-to-video',
+        name: 'MiniMax Hailuo 3.0 (参考生视频)',
+        description: '海螺 3.0 参考生视频，图/视频/音频混合参考保主体，2K',
+        modes: ['image-to-video'],
+        mediaType: 'video',
+        provider: this.name,
+        supportsAudio: true,
       },
 
       // --- Vidu series (Shengshu Tech) ---

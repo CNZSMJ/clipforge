@@ -1,3 +1,5 @@
+import { getFalVideoSpec } from "@/lib/providers/fal-video-params";
+
 /**
  * Transition strategy
  * Core idea: achieve natural transitions by stitching AI-generated start/end frames,
@@ -99,13 +101,18 @@ export function getTransitionList(): TransitionConfig[] {
 
 /**
  * Whether a video model accepts a pinned last frame (start/end-frame generation) — the gate for
- * keyframe-chained i2v. Conservative: the ai_start_end allowlist plus the Seedance 2.0/2.5
- * families (their published schemas expose an end-frame field); unknown/custom models chain only if explicitly listed.
+ * keyframe-chained i2v.
+ *
+ * The allowlist below is keyed by the Atlas-style catalog ids; fal publishes different ids for the
+ * same families, so anything whose own endpoint schema declares an end-frame field also qualifies.
+ * Without that the fal Kling / Luma / Wan / Hailuo / Vidu endpoints silently lost chaining even
+ * though they accept an end frame.
  */
 export function modelSupportsLastFrame(modelId: string): boolean {
   if (!modelId) return false;
   if (TRANSITIONS.ai_start_end.supportedModels.includes(modelId)) return true;
-  return /seedance-2\.[05]/.test(modelId);
+  if (/seedance-2\.[05]/.test(modelId)) return true;
+  return Boolean(getFalVideoSpec(modelId).lastFrame);
 }
 
 // recommend the best transition mode based on the user's configured providers

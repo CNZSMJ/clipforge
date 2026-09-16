@@ -24,9 +24,9 @@ export interface FalVideoSpec {
   /** Array field for reference images (product / character packs). */
   referenceImages?: 'image_urls' | 'reference_image_urls'
   /** Array field for reference videos (multimodal reference-to-video). */
-  referenceVideos?: 'video_urls'
+  referenceVideos?: 'video_urls' | 'reference_video_urls'
   /** Array field for reference audio. */
-  referenceAudio?: 'audio_urls'
+  referenceAudio?: 'audio_urls' | 'reference_audio_urls'
   /** Discriminator fal requires alongside a reference payload. */
   referenceTask?: string
   /** Endpoint wants `"4s"` instead of `4`. */
@@ -42,6 +42,8 @@ export interface FalVideoSpec {
   resolutions?: string[]
   /** Allowed duration values, used to snap a requested duration to a legal one. */
   durations?: number[]
+  /** Free-form duration range (the endpoint declares min/max instead of an enum). */
+  durationRange?: [number, number]
 }
 
 export const FAL_VIDEO_SPECS: Record<string, FalVideoSpec> = {
@@ -86,6 +88,19 @@ export const FAL_VIDEO_SPECS: Record<string, FalVideoSpec> = {
   'fal-ai/minimax/hailuo-2.3/standard/text-to-video': {},
   'fal-ai/minimax/hailuo-2.3/standard/image-to-video': { firstFrame: 'image_url' },
   'fal-ai/minimax/hailuo-2.3/pro/image-to-video': { firstFrame: 'image_url' },
+
+  // --- MiniMax Hailuo 3.0 (fal exposes the family as hailuo-03; 2K only, native stereo, 5-15s) ---
+  'fal-ai/minimax/hailuo-03/text-to-video': {
+    usesResolution: true, usesAspectRatio: true, resolutions: ['2K'], durationRange: [5, 15],
+  },
+  'fal-ai/minimax/hailuo-03/image-to-video': {
+    firstFrame: 'image_url', lastFrame: 'end_image_url',
+    usesResolution: true, resolutions: ['2K'], durationRange: [5, 15],
+  },
+  'fal-ai/minimax/hailuo-03/reference-to-video': {
+    referenceImages: 'reference_image_urls', referenceVideos: 'reference_video_urls', referenceAudio: 'reference_audio_urls',
+    usesResolution: true, usesAspectRatio: true, resolutions: ['2K'], durationRange: [5, 15],
+  },
 
   // --- Vidu ---
   'fal-ai/vidu/q2/image-to-video/pro': { firstFrame: 'image_url' },
