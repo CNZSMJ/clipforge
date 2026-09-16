@@ -62,7 +62,7 @@ export default function StartPage() {
   const router = useRouter();
   const t = useT("start");
   const locale = useLocale();
-  const { llm } = useSettingsStore();
+  const { llm, providers } = useSettingsStore();
   const applyFalOneKey = useSettingsStore((s) => s.applyFalOneKey);
   const llmReady = llm.apiKey.trim().length > 0;
   // example products follow the UI language
@@ -477,6 +477,14 @@ export default function StartPage() {
     if (!canStart || busy) return;
     // no LLM configured: expand the fal one-click setup panel inline (no navigation, no loss of filled content)
     if (!llmReady) {
+      // A fal key already saved under AI platforms covers the LLM too (its OpenRouter route shares
+      // the key), so wire it up instead of asking the user to paste the same key a second time.
+      const configuredFalKey = providers["fal-ai"]?.apiKey?.trim();
+      if (configuredFalKey) {
+        applyFalOneKey(configuredFalKey);
+        void runGeneration();
+        return;
+      }
       setNeedKey(true);
       // the panel may be mounting this very tick — defer the scroll until React has committed it to the DOM
       requestAnimationFrame(() => {
