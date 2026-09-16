@@ -786,6 +786,18 @@ export class FalAIProvider extends BaseProvider {
     result: FalResultResponse,
     modelId: string
   ): ImageResult | VideoResult {
+    // fal stores a REJECTED submission as the request's outcome and still reports COMPLETED, so the
+    // "result" body can be a validation error. Surface the platform's own reason instead of letting
+    // the caller report a vague "result URL unavailable".
+    const detail = (result as { detail?: unknown }).detail
+    if (!result.images?.length && !result.video && !result.videos?.length && detail !== undefined) {
+      throw new ProviderError(
+        `平台拒绝了这次请求（${modelId}）：${typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 300)}`,
+        'PLATFORM_REJECTED',
+        this.name
+      )
+    }
+
     // image result
     if (result.images && result.images.length > 0) {
       return {

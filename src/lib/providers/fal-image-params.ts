@@ -31,6 +31,8 @@ const GPT_QUALITY = ['auto', 'low', 'medium', 'high', 'xhigh', 'max']
 export interface FalImageSpec {
   /** Reference-image field. Absent ⇒ the endpoint is text-to-image only. */
   referenceField?: 'image_url' | 'image_urls'
+  /** The endpoint rejects the request unless a reference is supplied (every /edit route does). */
+  requiresReference?: boolean
   /** Accepts the {width,height} object form of image_size. */
   sizeObject?: boolean
   /** Accepted preset strings (in addition to, or instead of, the object form). */
@@ -48,8 +50,9 @@ export interface FalImageSpec {
   numImages?: boolean
 }
 
-const GPT25 = (referenceField?: 'image_urls'): FalImageSpec => ({
+const GPT25 = (referenceField?: 'image_urls', requiresReference?: boolean): FalImageSpec => ({
   ...(referenceField && { referenceField }),
+  ...(requiresReference && { requiresReference: true }),
   sizeObject: true,
   sizePresets: [...STD_PRESETS, 'auto'],
   // gpt-image wants multiples of 16, and no endpoint in the family declares a seed field
@@ -60,10 +63,10 @@ const GPT25 = (referenceField?: 'image_urls'): FalImageSpec => ({
 export const FAL_IMAGE_SPECS: Record<string, FalImageSpec> = {
   'openai/gpt-image-2.5/sunburst/text-to-image': GPT25(),
   'openai/gpt-image-2.5/flare/text-to-image': GPT25(),
-  'openai/gpt-image-2.5/sunburst/edit': GPT25('image_urls'),
-  'openai/gpt-image-2.5/flare/edit': GPT25('image_urls'),
+  'openai/gpt-image-2.5/sunburst/edit': GPT25('image_urls', true),
+  'openai/gpt-image-2.5/flare/edit': GPT25('image_urls', true),
   'openai/gpt-image-2': GPT25(),
-  'openai/gpt-image-2/edit': GPT25('image_urls'),
+  'openai/gpt-image-2/edit': GPT25('image_urls', true),
 
   'fal-ai/gpt-image-1.5': {
     sizePresets: ['1024x1024', '1536x1024', '1024x1536'],
@@ -71,6 +74,7 @@ export const FAL_IMAGE_SPECS: Record<string, FalImageSpec> = {
 
   'fal-ai/bytedance/seedream/v5/lite/edit': {
     referenceField: 'image_urls',
+    requiresReference: true,
     sizeObject: true,
     sizePresets: [...STD_PRESETS, 'auto_2K', 'auto_3K', 'auto_4K'],
     numImages: true,
@@ -105,9 +109,41 @@ export function getFalImageSpec(modelId: string): FalImageSpec {
   if (known) return known
   const id = modelId.toLowerCase()
   if (id.includes('/edit') || id.includes('image-to-image') || id.includes('seededit')) {
-    return { referenceField: 'image_urls', sizeObject: true, sizePresets: STD_PRESETS }
+    return { referenceField: 'image_urls', requiresReference: true, sizeObject: true, sizePresets: STD_PRESETS }
   }
   return { sizeObject: true, sizePresets: STD_PRESETS }
+}
+
+/**
+ * Edit <-> text-to-image pairs for the same model tier. Verified against both endpoints' OpenAPI:
+ * each /edit route requires image_urls, each text-to-image route requires only prompt.
+ * NOTE gpt-image-2 and gpt-image-1.5 do not use a /text-to-image suffix.
+ */
+const FAL_IMAGE_SIBLINGS: ReadonlyArray<[edit: string, textOnly: string]> = [
+  ['openai/gpt-image-2.5/sunburst/edit', 'openai/gpt-image-2.5/sunburst/text-to-image'],
+  ['openai/gpt-image-2.5/flare/edit', 'openai/gpt-image-2.5/flare/text-to-image'],
+  ['openai/gpt-image-2/edit', 'openai/gpt-image-2'],
+  ['fal-ai/gpt-image-1.5/edit', 'fal-ai/gpt-image-1.5'],
+  ['fal-ai/bytedance/seedream/v5/lite/edit', 'fal-ai/bytedance/seedream/v5/lite/text-to-image'],
+]
+
+/**
+ * The sibling endpoint that actually fits what we have.
+ *
+ * A storyboard mixes product shots (which carry the product photo) with plain B-roll shots (which
+ * do not), so one "default image model" cannot be right for every call. Rather than making the user
+ * switch per shot — or submitting a /edit call with no image_urls, which fal rejects with a 422 and
+ * still reports as COMPLETED — route to the sibling of the same tier.
+ */
+export function falImageSibling(modelId: string, needsReference: boolean): string | undefined {
+  const spec = FAL_IMAGE_SPECS[modelId] ?? getFalImageSpec(modelId)
+  const acceptsReference = Boolean(spec.referenceField)
+  if (needsReference === acceptsReference) return undefined
+  for (const [edit, textOnly] of FAL_IMAGE_SIBLINGS) {
+    if (needsReference && modelId === textOnly) return edit
+    if (!needsReference && modelId === edit) return textOnly
+  }
+  return undefined
 }
 
 /** Nearest preset for a requested aspect; "1024x1024"-style enums are matched by orientation. */
@@ -174,7 +210,16 @@ export function buildFalImageRequest(options: {
   referenceImageUrls?: string[]
   extra?: Record<string, unknown>
 }): { modelId: string; body: Record<string, unknown> } {
-  const spec = getFalImageSpec(options.modelId)
+  const refs = options.referenceImageUrls?.length
+    ? options.referenceImageUrls
+    : options.referenceImageUrl
+      ? [options.referenceImageUrl]
+      : undefined
+
+  // Route to the sibling that fits what we have BEFORE validating: a B-roll shot carries no
+  // reference and must never be submitted to an /edit route.
+  const modelId = falImageSibling(options.modelId, refs != null) ?? options.modelId
+  const spec = getFalImageSpec(modelId)
   const w = options.width ?? 0
   const h = options.height ?? 0
 
@@ -187,17 +232,19 @@ export function buildFalImageRequest(options: {
     if (size !== undefined) body.image_size = size
   }
 
-  const refs = options.referenceImageUrls?.length
-    ? options.referenceImageUrls
-    : options.referenceImageUrl
-      ? [options.referenceImageUrl]
-      : undefined
   if (refs && !spec.referenceField) {
     // Dropping the reference silently is the worst outcome: the caller asked for a product-faithful
     // render and would get an invented one. Fail loudly and name the endpoint to switch to.
     throw new Error(
       `模型 ${options.modelId} 是文生图端点，不接受参考图；请改用同档位的编辑端点（.../edit）。` +
         ' 否则商品图会被忽略，生成的画面与实物不符。'
+    )
+  }
+  if (!refs && spec.requiresReference) {
+    // No sibling could be resolved: fail before submitting so nothing is queued or billed.
+    throw new Error(
+      '模型 ' + modelId + ' 必须提供参考图（image_urls）才能提交；这一镜头没有参考图，' +
+        ' 请在设置里改用同档位的文生图端点（.../text-to-image）。'
     )
   }
   if (refs && spec.referenceField === 'image_urls') body.image_urls = refs
@@ -209,5 +256,5 @@ export function buildFalImageRequest(options: {
   if (spec.guidanceScale && options.guidanceScale != null) body.guidance_scale = options.guidanceScale
   if (spec.steps && options.steps != null) body.num_inference_steps = options.steps
 
-  return { modelId: options.modelId, body: { ...body, ...options.extra } }
+  return { modelId, body: { ...body, ...options.extra } }
 }

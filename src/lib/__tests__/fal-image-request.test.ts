@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildFalImageRequest, getFalImageSpec, nearestFalImagePreset } from "@/lib/providers/fal-image-params";
+import { vi } from "vitest";
+import { buildFalImageRequest, falImageSibling, getFalImageSpec, nearestFalImagePreset } from "@/lib/providers/fal-image-params";
+import { FalAIProvider } from "@/lib/providers/fal-ai";
 
 /**
  * Every property each endpoint's OpenAPI declares, read from
@@ -102,19 +104,66 @@ describe("fal image request building", () => {
     expect(body.image_size).toEqual({ width: 1920, height: 1080 });
   });
 
-  it("refuses to silently drop a reference on a text-to-image endpoint", () => {
-    expect(() =>
-      buildFalImageRequest({ ...common, ...withRef, modelId: "openai/gpt-image-2.5/sunburst/text-to-image" })
-    ).toThrow(/文生图端点/);
-    // ...and stays quiet when there is no reference to drop
-    expect(() =>
-      buildFalImageRequest({ modelId: "openai/gpt-image-2.5/sunburst/text-to-image", prompt: "a red cup" })
-    ).not.toThrow();
+  it("routes to the EDIT sibling when a reference is supplied to a text-to-image endpoint", () => {
+    const { modelId, body } = buildFalImageRequest({ ...common, ...withRef, modelId: "openai/gpt-image-2.5/sunburst/text-to-image" });
+    expect(modelId).toBe("openai/gpt-image-2.5/sunburst/edit");
+    expect(body.image_urls).toEqual(["https://cdn.example/product.png"]);
   });
 
+  it("routes a reference-less shot to the TEXT-TO-IMAGE sibling instead of submitting an /edit call", () => {
+    // This is the real storyboard case: a B-roll shot has no product photo, and an /edit endpoint
+    // answers 422 "missing image_urls" while still reporting the request as COMPLETED.
+    const { modelId, body } = buildFalImageRequest({ ...common, modelId: "openai/gpt-image-2.5/sunburst/edit" });
+    expect(modelId).toBe("openai/gpt-image-2.5/sunburst/text-to-image");
+    expect(body.image_urls).toBeUndefined();
+    expect(body.prompt).toBe(common.prompt);
+  });
+
+  it("routes the pairs whose ids do not follow the /text-to-image convention", () => {
+    expect(buildFalImageRequest({ ...common, modelId: "openai/gpt-image-2/edit" }).modelId).toBe("openai/gpt-image-2");
+    expect(buildFalImageRequest({ ...common, ...withRef, modelId: "openai/gpt-image-2" }).modelId).toBe("openai/gpt-image-2/edit");
+    expect(buildFalImageRequest({ ...common, modelId: "fal-ai/bytedance/seedream/v5/lite/edit" }).modelId).toBe(
+      "fal-ai/bytedance/seedream/v5/lite/text-to-image"
+    );
+  });
+
+  it("fails before submitting when an /edit endpoint has no sibling and no reference", () => {
+    expect(() =>
+      buildFalImageRequest({ ...common, modelId: "acme/custom/edit" })
+    ).toThrow(/必须提供参考图/);
+    // with a reference the custom /edit endpoint is fine
+    expect(buildFalImageRequest({ ...common, ...withRef, modelId: "acme/custom/edit" }).body.image_urls).toEqual([
+      "https://cdn.example/product.png",
+    ]);
+  });
+
+  it("the custom-endpoint inference marks /edit routes as requiring a reference", () => {
+    expect(getFalImageSpec("acme/custom/edit").requiresReference).toBe(true);
+  });
   it("maps a requested aspect onto the preset family", () => {
     expect(nearestFalImagePreset(1920, 1080, ["square_hd", "landscape_16_9", "portrait_16_9"])).toBe("landscape_16_9");
     expect(nearestFalImagePreset(1080, 1920, ["square_hd", "landscape_16_9", "portrait_16_9"])).toBe("portrait_16_9");
     expect(nearestFalImagePreset(1024, 1024, ["square_hd", "landscape_16_9"])).toBe("square_hd");
+  });
+});
+
+describe("platform-rejected submissions", () => {
+  it("surfaces fal's stored 422 instead of a vague result error", async () => {
+    const provider = new FalAIProvider({ name: "fal-ai", apiKey: "k", baseUrl: "https://example.com" });
+    vi.spyOn(provider as unknown as { request: (path: string) => Promise<unknown> }, "request").mockImplementation(
+      async (path: string) =>
+        path.endsWith("/status")
+          ? { status: "COMPLETED", request_id: "r1" }
+          : { detail: [{ type: "missing", loc: ["body", "image_urls"], msg: "Field required" }] }
+    );
+    await expect(
+      provider.getTaskStatus("openai/gpt-image-2.5/sunburst/edit::r1")
+    ).rejects.toThrow(/平台拒绝了这次请求/);
+  });
+
+  it("falImageSibling only rewrites known pairs", () => {
+    expect(falImageSibling("openai/gpt-image-2.5/flare/edit", false)).toBe("openai/gpt-image-2.5/flare/text-to-image");
+    expect(falImageSibling("openai/gpt-image-2.5/flare/edit", true)).toBeUndefined();
+    expect(falImageSibling("fal-ai/veo3", true)).toBeUndefined();
   });
 });
