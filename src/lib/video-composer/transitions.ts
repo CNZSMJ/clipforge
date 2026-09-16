@@ -100,7 +100,7 @@ export function getTransitionList(): TransitionConfig[] {
 /**
  * Whether a video model accepts a pinned last frame (start/end-frame generation) — the gate for
  * keyframe-chained i2v. Conservative: the ai_start_end allowlist plus the Seedance 2.0/2.5
- * families (their Atlas schemas expose `last_image`); unknown/custom models chain only if explicitly listed.
+ * families (their published schemas expose an end-frame field); unknown/custom models chain only if explicitly listed.
  */
 export function modelSupportsLastFrame(modelId: string): boolean {
   if (!modelId) return false;

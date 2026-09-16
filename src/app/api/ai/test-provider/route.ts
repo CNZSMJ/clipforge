@@ -11,7 +11,6 @@ import { normalizeChatBase } from "@/lib/llm-models";
  */
 
 const DEFAULT_BASE: Record<string, string> = {
-  "atlas-cloud": "https://api.atlascloud.ai/api/v1",
   "fal-ai": "https://queue.fal.run",
   replicate: "https://api.replicate.com/v1",
   volcengine: "https://ark.cn-beijing.volces.com/api/v3",
@@ -38,24 +37,6 @@ function buildProbe(name: string, apiKey: string, baseUrl?: string): Probe {
   if (name === "alibaba") {
     // dashscope 原生无 /models，用 OpenAI 兼容模式的 /models 验 Key
     return { url: `https://dashscope.aliyuncs.com/compatible-mode/v1/models`, headers: { Authorization: `Bearer ${apiKey}` } };
-  }
-  if (name === "atlas-cloud") {
-    // Atlas 的 GET /models 是公开模型目录，无效 Key 也返回 2xx（会误判为有效）。
-    // Atlas 没有 /account、/me、/usage 这类只读鉴权端点，只能用 OpenAI 兼容的 chat/completions 做鉴权探针：
-    // 选最便宜的聊天模型 + max_tokens:1，仅靠 401/403 判无效，2xx 即鉴权通过；成本/时延可忽略。
-    // 必须打聊天网关 /v1：素材网关 /api/v1 上的 chat/completions 对有效 Key 也只回 404，
-    // 于是「有效」被降级成「无法判定」，Key 明明能用却从来没被确认过（issue #24）。
-    return {
-      url: `${normalizeChatBase(base)}/chat/completions`,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      method: "POST",
-      body: JSON.stringify({
-        // non-thinking flash tier: a thinking model can burn reasoning tokens even at max_tokens:1
-        model: "deepseek-ai/deepseek-v4-flash",
-        messages: [{ role: "user", content: "hi" }],
-        max_tokens: 1,
-      }),
-    };
   }
   // siliconflow / volcengine / 自定义 OpenAI 兼容：GET /models
   return { url: `${base}/models`, headers: { Authorization: `Bearer ${apiKey}` } };

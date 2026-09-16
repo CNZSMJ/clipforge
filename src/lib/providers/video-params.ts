@@ -1,29 +1,14 @@
 /**
- * Per-model video request params for Atlas Cloud (mirrors buildImageSizeParams, issue #18).
+ * Per-model video request shapes for the third-party video families the app can reach.
  *
- * Atlas video models disagree on how the same intent is expressed:
- * - last frame:  `last_image` (Seedance / Veo / Wan) vs `end_image` (MiniMax H3 / Kling O3)
- * - duration:    integer enums with different ranges (H3 4-15, Kling O3 3-15, Veo {4,6,8},
- *                Hailuo 2.3 {6,10}, Hailuo i2v-pro has NO duration param at all)
- * - resolution:  different tier vocabularies ("480p/720p/1080p", "768P/2K", "720p/1080p/4k")
- * - aspect:      `ratio` vs `aspect_ratio`, some enums include "adaptive"
- * - audio:       `generate_audio` vs `sound` vs none (H3 always generates native stereo)
- * - references:  paired arrays (Seedance), one mixed `refers` array (H3),
- *                `images` + single `video` (Kling O3), `images` + `videos` (Wan 2.7)
+ * The families disagree on how the same intent is expressed (Seedance wants last_image on one
+ * variant and end_image_url on another; Kling drives from start_image_url; Hailuo encodes the
+ * variant in the model id). These specs are what lets the capability layer answer "can this model
+ * take a product reference / an end frame / reference audio?" without hard-coding vendor names.
  *
- * Every spec below was transcribed from the model's published input schema
- * (static.atlascloud.ai/model/schema/*.json, fetched 2026-08). Legacy families that the
- * original hardcoded body already serves (seedance-2.0/-fast, v1.5-pro, kling-v3.0,
- * vidu q3, wan-2.6) intentionally have NO spec so their request bodies stay byte-identical.
- *
- * Unknown models discovered at runtime get a spec derived from the same published
- * schema via specFromOpenApiInput() — this is what makes new Atlas models usable
- * without a code change.
+ * NOTE: this file is provider-agnostic and must NOT be deleted along with any single vendor.
+ * fal-specific request building lives in fal-video-params.ts.
  */
-
-import type { VideoOptions } from './types'
-
-// ==================== Spec type ====================
 
 /** How a model expects reference materials for reference-to-video generation */
 export type ReferenceShape =
@@ -32,7 +17,7 @@ export type ReferenceShape =
   | 'images-plus-video' // images[] + a single video string (Kling O3)
   | 'images-videos' // images[] + videos[] (Wan 2.7)
 
-export interface AtlasVideoParamSpec {
+export interface VideoParamSpec {
   /** Field carrying the first-frame image (present on i2v variants) */
   firstFrameKey?: 'image'
   /** Field carrying the pinned last frame, when the model supports one */
@@ -84,7 +69,7 @@ const WAN_30_DURATIONS = Array.from({ length: 29 }, (_, i) => i + 2) // 2..30
 const WAN_30_RESOLUTIONS = ['480p', '720p', '1080p', '720p-esr', '1080p-esr', '1440p-esr', '4k-esr']
 const WAN_30_RATIOS = ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16']
 
-export const ATLAS_VIDEO_PARAM_SPECS: Record<string, AtlasVideoParamSpec> = {
+export const VIDEO_PARAM_SPECS: Record<string, VideoParamSpec> = {
   // --- MiniMax H3 (Hailuo 3.0): native stereo audio, no audio toggle ---
   'minimax/h3/text-to-video': {
     durationEnum: H3_DURATIONS,
@@ -269,8 +254,8 @@ export const ATLAS_VIDEO_PARAM_SPECS: Record<string, AtlasVideoParamSpec> = {
 }
 
 /** Curated spec lookup by exact model ID */
-export function getVideoParamSpec(modelId: string): AtlasVideoParamSpec | undefined {
-  return ATLAS_VIDEO_PARAM_SPECS[modelId]
+export function getVideoParamSpec(modelId: string): VideoParamSpec | undefined {
+  return VIDEO_PARAM_SPECS[modelId]
 }
 
 // ==================== Value pickers ====================
@@ -349,74 +334,6 @@ export function pickRatio(allowed: string[], width: number, height: number): str
  * strict input validation never see foreign params (the pre-billing failure mode
  * of issue #18, now avoided for video too).
  */
-export function buildAtlasVideoBody(
-  modelId: string,
-  spec: AtlasVideoParamSpec,
-  options: VideoOptions,
-  prompt: string
-): Record<string, unknown> {
-  const body: Record<string, unknown> = { model: modelId, prompt }
-  const { width, height, duration } = options
-
-  if (options.mode === 'video-to-video' && spec.referenceShape) {
-    const images = options.referenceImageUrls ?? []
-    const videos = options.referenceVideoUrls ?? []
-    const audios = options.referenceAudioUrls ?? []
-    switch (spec.referenceShape) {
-      case 'refers':
-        // H3 takes one mixed array; keep videos first so ordinal prompt references
-        // ("视频1 … 图1…") keep pointing at the reference clip before product photos
-        body.refers = [...videos, ...images, ...audios]
-        break
-      case 'paired-arrays':
-        if (images.length) body.reference_images = images
-        if (videos.length) body.reference_videos = videos
-        if (audios.length) body.reference_audios = audios
-        break
-      case 'images-plus-video':
-        if (images.length) body.images = images
-        if (videos.length) body.video = videos[0]
-        break
-      case 'images-videos':
-        if (images.length) body.images = images
-        if (videos.length) body.videos = videos
-        break
-    }
-  } else {
-    if (spec.firstFrameKey && options.firstFrameUrl) body[spec.firstFrameKey] = options.firstFrameUrl
-    if (spec.lastFrameKey && options.lastFrameUrl) body[spec.lastFrameKey] = options.lastFrameUrl
-  }
-
-  if (!spec.noDuration) {
-    if (duration) {
-      body.duration = spec.durationEnum
-        ? pickEnumDuration(spec.durationEnum, duration)
-        : Math.round(duration)
-    } else if (spec.requiredDefaults?.duration !== undefined) {
-      body.duration = spec.requiredDefaults.duration
-    }
-  }
-
-  if (spec.resolutionEnum) {
-    const resolution =
-      width && height ? pickResolution(spec.resolutionEnum, width, height) : undefined
-    const fallback = spec.requiredDefaults?.resolution
-    if (resolution) body.resolution = resolution
-    else if (fallback) body.resolution = fallback
-  }
-
-  if (spec.ratioKey && spec.ratioEnum?.length) {
-    const ratio = width && height ? pickRatio(spec.ratioEnum, width, height) : undefined
-    if (ratio) body[spec.ratioKey] = ratio
-  }
-
-  if (spec.audioKey) body[spec.audioKey] = options.audioEnabled ?? false
-  if (spec.supportsSeed && options.seed !== undefined) body.seed = options.seed
-  if (spec.supportsWatermark) body.watermark = false
-
-  return { ...body, ...options.extra }
-}
-
 // ==================== Runtime spec derivation (dynamic discovery) ====================
 
 interface OpenApiProperty {
@@ -432,65 +349,7 @@ interface OpenApiInput {
 
 /**
  * Derive a param spec from a model's published input schema
- * (components.schemas.Input of static.atlascloud.ai/model/schema/<id>.json).
+ * (each vendor's published model schema).
  * Returns undefined when the JSON doesn't look like an input schema, in which
  * case the caller falls back to the legacy request body.
  */
-export function specFromOpenApiInput(input: unknown): AtlasVideoParamSpec | undefined {
-  const schema = input as OpenApiInput | undefined
-  const props = schema?.properties
-  if (!props || typeof props !== 'object') return undefined
-
-  const spec: AtlasVideoParamSpec = {}
-
-  if ('image' in props) spec.firstFrameKey = 'image'
-  if ('end_image' in props) spec.lastFrameKey = 'end_image'
-  else if ('last_image' in props) spec.lastFrameKey = 'last_image'
-
-  const durationProp = props.duration
-  if (!durationProp) {
-    spec.noDuration = true
-  } else if (Array.isArray(durationProp.enum)) {
-    const values = durationProp.enum.filter((v): v is number => typeof v === 'number' && v > 0)
-    if (values.length) spec.durationEnum = values
-  }
-
-  const resolutionEnum = props.resolution?.enum
-  if (Array.isArray(resolutionEnum)) {
-    spec.resolutionEnum = resolutionEnum.filter((v): v is string => typeof v === 'string')
-  }
-
-  const ratioKey = 'ratio' in props ? 'ratio' : 'aspect_ratio' in props ? 'aspect_ratio' : undefined
-  if (ratioKey) {
-    const ratioEnum = props[ratioKey]?.enum
-    if (Array.isArray(ratioEnum)) {
-      spec.ratioKey = ratioKey
-      spec.ratioEnum = ratioEnum.filter((v): v is string => typeof v === 'string')
-    }
-  }
-
-  if (props.generate_audio?.type === 'boolean') spec.audioKey = 'generate_audio'
-  else if (props.sound?.type === 'boolean') spec.audioKey = 'sound'
-
-  if ('refers' in props) spec.referenceShape = 'refers'
-  else if ('reference_images' in props || 'reference_videos' in props) spec.referenceShape = 'paired-arrays'
-  else if ('images' in props && 'videos' in props) spec.referenceShape = 'images-videos'
-  else if ('images' in props && 'video' in props) spec.referenceShape = 'images-plus-video'
-
-  if ('seed' in props) spec.supportsSeed = true
-  if ('watermark' in props) spec.supportsWatermark = true
-
-  const required = Array.isArray(schema?.required) ? schema.required : []
-  const requiredDefaults: AtlasVideoParamSpec['requiredDefaults'] = {}
-  if (required.includes('resolution') && typeof props.resolution?.default === 'string') {
-    requiredDefaults.resolution = props.resolution.default
-  }
-  if (required.includes('duration') && typeof durationProp?.default === 'number') {
-    requiredDefaults.duration = durationProp.default
-  }
-  if (requiredDefaults.resolution || requiredDefaults.duration !== undefined) {
-    spec.requiredDefaults = requiredDefaults
-  }
-
-  return spec
-}

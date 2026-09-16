@@ -26,6 +26,9 @@ import { extractFrameAtTime } from "@/lib/video-composer/frame-extract";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Providers whose video API can stage a local file for reference-conditioned repair. */
+const UPLOAD_CAPABLE_PROVIDERS = new Set(["fal-ai", "volcengine"]);
+
 const SAFE_ID = /^[a-zA-Z0-9-]+$/;
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
 
@@ -96,7 +99,7 @@ async function compilePreview(projectId: string, body: RepairRequest, forceOpera
     requestedScope: body.scope,
     requestedRegion: body.region,
     keyframes: requestedKeyframes,
-    sourceUploadAvailable: provider === "atlas-cloud",
+    sourceUploadAvailable: UPLOAD_CAPABLE_PROVIDERS.has(provider),
     pricePerCall: body.pricePerCall,
   });
   return { preview, context };

@@ -5,7 +5,7 @@ import {
   pickEnumDuration,
   pickRatio,
   pickResolution,
-} from "@/lib/providers/atlas-video-params";
+} from "@/lib/providers/video-params";
 import { modelSupportsLastFrame } from "@/lib/video-composer/transitions";
 
 export type CapabilityConfidence = "known" | "inferred" | "unknown";

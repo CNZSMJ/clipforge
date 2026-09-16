@@ -123,7 +123,7 @@ export function buildReplicatePrompt(input: { productName: string; sellingPoints
 
 /**
  * Map a configured video model to its reference-to-video sibling. Families with a
- * reference variant on Atlas: Seedance 2.0 (incl. fast/mini), MiniMax H3, Wan 2.7,
+ * reference variant: Seedance 2.0 (incl. fast/mini), MiniMax H3, Wan 2.7,
  * Kling Video O3. Returns undefined when the model family can't replicate — the UI
  * disables the model-tier button with a hint.
  */

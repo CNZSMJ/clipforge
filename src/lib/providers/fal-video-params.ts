@@ -187,7 +187,7 @@ function parseFalResTier(value: string): number | undefined {
  *
  * The tier is the SHORT side — a 720x1280 portrait request is 720p, not 1080p — and the smallest
  * tier that covers the request wins, so a request is never silently downscaled below what was asked
- * (matches the shared pickResolution convention in atlas-video-params).
+ * (matches the shared pickResolution convention in video-params).
  */
 export function nearestFalResolution(
   width: number | undefined,

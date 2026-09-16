@@ -9,7 +9,7 @@ import {
   type ImageGenParams,
   type VideoGenParams,
 } from "@/lib/gen-params";
-import { ATLAS_BASE_URL, ATLAS_LLM_BASE_URL, ATLAS_ONEKEY_MODELS, fillAtlasModelDefaults } from "@/lib/atlas-onekey";
+import { FAL_BASE_URL, FAL_LLM_BASE_URL, FAL_ONEKEY_MODELS, FAL_TTS_MODEL, FAL_TTS_VOICE, fillFalModelDefaults } from "@/lib/fal-onekey";
 import type { MotionIntensity, MotionRealismTier } from "@/lib/motion-prompt";
 import {
   isProductionProfileId,
@@ -33,7 +33,7 @@ export interface LLMSetting {
   visionModel?: string; // 视觉分析模型
 }
 
-// TTS 配音配置（多平台：OpenAI 兼容 / Atlas / MiniMax / fal.ai）
+// TTS 配音配置（多平台：OpenAI 兼容 / fal.ai / MiniMax）
 export interface TTSSetting {
   enabled: boolean;
   /** 平台，缺省 "openai"（旧配置无此字段时按 openai 处理） */
@@ -110,8 +110,8 @@ export interface SettingsState {
   setVisualLook: (look: string) => void;
   setUiMode: (mode: "simple" | "pro") => void;
   applyProductionProfile: (profile: ProductionProfileId) => void;
-  /** 一个 Atlas Key 一键接入：脚本+看图+生图+生视频+配音全配好（不覆盖用户已选模型/已开的配音） */
-  applyAtlasOneKey: (apiKey: string) => void;
+  /** 一个 fal Key 一键接入：脚本+看图+生图+生视频+配音全配好（不覆盖用户已选模型/已开的配音） */
+  applyFalOneKey: (apiKey: string) => void;
 }
 
 /** Pollinations 的新端点（旧的 text.pollinations.ai 免 Key 接口已停用） */
@@ -138,21 +138,11 @@ export function migrateSettings(state: SettingsState): SettingsState {
     const fixes: Array<{ hostRe: RegExp; from: string; to: string }> = [
       { hostRe: /api\.deepseek\.com/i, from: "deepseek-v3.2", to: "deepseek-v4-flash" },
       { hostRe: /volces\.com/i, from: "doubao-seed-2.0-pro", to: "doubao-seed-2-0-pro-260215" },
-      // Atlas one-key's old default: v3.2's thinking mode leaks reasoning text into JSON output
-      // and breaks script generation (2026-08 field test) — move to the clean-JSON V4 flagship.
-      // Only the exact old default is migrated; a model the user picked themselves stays put.
-      { hostRe: /api\.atlascloud\.ai/i, from: "deepseek-ai/deepseek-v3.2", to: "deepseek-ai/deepseek-v4-pro" },
     ];
     for (const f of fixes) {
       if (!f.hostRe.test(llm.baseUrl)) continue;
       if (llm.model === f.from) llm.model = f.to;
       if (llm.visionModel === f.from) llm.visionModel = f.to;
-    }
-
-    // Atlas one-key used to write the media base into the LLM slot, so every script generation
-    // 404'd on a model that does exist (issue #24). Move those installs onto the chat gateway.
-    if (/^https?:\/\/api\.atlascloud\.ai\/api\/v1\/?$/i.test(llm.baseUrl)) {
-      llm.baseUrl = ATLAS_LLM_BASE_URL;
     }
 
     if (/text\.pollinations\.ai/i.test(llm.baseUrl)) {
@@ -172,7 +162,6 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       providers: {
-        "atlas-cloud": { enabled: false, apiKey: "" },
         "fal-ai": { enabled: false, apiKey: "" },
         replicate: { enabled: false, apiKey: "" },
         volcengine: { enabled: false, apiKey: "" },
@@ -243,33 +232,34 @@ export const useSettingsStore = create<SettingsState>()(
       setUiMode: (mode) => set({ uiMode: mode }),
       applyProductionProfile: (profile) =>
         set((state) => productionProfilePatch(profile, state)),
-      // 一个 Atlas Key 一键接入全套：LLM 脚本 + Vision 看图 + 生图 + 生视频 + Atlas 配音
-      applyAtlasOneKey: (apiKey) =>
+      // 一个 fal Key 一键接入全套：LLM 脚本（OpenRouter 路由）+ Vision 看图 + 生图 + 生视频 + fal 配音
+      applyFalOneKey: (apiKey) =>
         set((state) => {
           const key = apiKey.trim();
-          const def = fillAtlasModelDefaults({
+          const def = fillFalModelDefaults({
             image: state.defaultImageModel,
             video: state.defaultVideoModel,
           });
           return {
             llm: {
-              provider: "Atlas Cloud",
-              // chat gateway, not ATLAS_BASE_URL — the media base 404s every chat call (issue #24)
-              baseUrl: ATLAS_LLM_BASE_URL,
+              provider: "fal.ai",
+              // fal's OpenRouter chat gateway is OpenAI-compatible and shares the fal key;
+              // the media queue host (FAL_BASE_URL) answers every chat call with 404.
+              baseUrl: FAL_LLM_BASE_URL,
               apiKey: key,
-              model: ATLAS_ONEKEY_MODELS.llm,
-              visionModel: ATLAS_ONEKEY_MODELS.vision,
+              model: FAL_ONEKEY_MODELS.llm,
+              visionModel: FAL_ONEKEY_MODELS.vision,
             },
             providers: {
               ...state.providers,
-              "atlas-cloud": { ...state.providers["atlas-cloud"], enabled: true, apiKey: key },
+              "fal-ai": { ...state.providers["fal-ai"], enabled: true, apiKey: key },
             },
             defaultImageModel: def.image,
             defaultVideoModel: def.video,
-            // 配音：之前没开过才默认接 Atlas TTS（复用同一个 Key），已配则保持不动
+            // 配音：之前没开过才默认接 fal TTS（复用同一个 Key），已配则保持不动
             tts: state.tts.enabled
               ? state.tts
-              : { ...state.tts, enabled: true, provider: "atlas", baseUrl: ATLAS_BASE_URL, model: "", voice: "" },
+              : { ...state.tts, enabled: true, provider: "falai", baseUrl: FAL_BASE_URL, model: FAL_TTS_MODEL, voice: FAL_TTS_VOICE },
           };
         }),
     }),
@@ -281,8 +271,6 @@ export const useSettingsStore = create<SettingsState>()(
       // v2：把已停用的 Pollinations 免 Key 地址迁到新端点（见 migrateSettings 注释）。
       // v3：Ollama 的 localhost:11434 改写成 127.0.0.1:11434（Windows 上 ::1 连不通）。
       // v4：补充面向创作目标的生产方案；旧设置迁移到兼顾质量与成本的 balanced。
-      // v5：Atlas 一键接入曾把「素材网关」/api/v1 写进 LLM 地址，导致写脚本必 404（issue #24），
-      // 迁到 OpenAI 兼容的聊天网关 /v1。
       version: 5,
       migrate: (persisted) => migrateSettings(persisted as SettingsState),
     }

@@ -8,13 +8,13 @@ export const settings: NamespaceMessages = {
     pageSubtitle:
       "配置 AI 服务后即可开始生成带货视频。需要配置 LLM（生成脚本）+ 至少一个 AI 平台（生成图片/视频）。",
 
-    // 新手一键接入 Atlas
+    // 新手一键接入 fal
     oneKeyTitle: "新手推荐 · 一个 Key 全搞定",
-    oneKeyDesc: "填 Atlas Cloud 的 API Key，自动配好脚本 + 图 + 视频 + 配音，无需在下面逐项设置。",
-    oneKeyPlaceholder: "粘贴 Atlas Cloud API Key",
+    oneKeyDesc: "填 fal.ai 的 API Key，自动配好脚本 + 图 + 视频 + 配音（LLM 走 fal 的 OpenRouter 路由），无需在下面逐项设置。",
+    oneKeyPlaceholder: "粘贴 fal.ai API Key",
     oneKeyCta: "一键接入",
-    oneKeyDone: "已接入 Atlas Cloud — 下方 LLM / 生图 / 生视频 / 配音 已自动配好，可直接开始出片",
-    oneKeyGetKey: "没有 Key？前往 Atlas Cloud 获取 →",
+    oneKeyDone: "已接入 fal.ai — 下方 LLM / 生图 / 生视频 / 配音 已自动配好，可直接开始出片",
+    oneKeyGetKey: "没有 Key？前往 fal.ai 获取 →",
 
     // 标签页
     tabProviders: "平台 Key",
@@ -23,8 +23,6 @@ export const settings: NamespaceMessages = {
     tabBrand: "品牌设置",
 
     // AI 平台描述/提示
-    providerAtlasDesc: "高质量图像和视频生成平台，支持多种 AI 模型",
-    providerAtlasTip: "推荐首选，模型最全最便宜",
     providerFalDesc: "快速推理平台，支持 Flux、SDXL 等主流图像生成模型",
     providerFalTip: "支持 Kling 3.0、Veo 3 等最新模型",
     providerReplicateDesc: "海量模型聚合平台，FLUX、Imagen、Kling、Seedance、Veo 等一站接入",
@@ -48,7 +46,7 @@ export const settings: NamespaceMessages = {
     // LLM 配置
     llmProvider: "LLM Provider",
     llmPresetHint: "快捷预设（点击自动填入 baseUrl 和模型，还需填写 API Key）：",
-    presetAtlasTip: "推荐！LLM+生图生视频共用一个 Key",
+    presetFalTip: "一个 fal Key 同时给脚本/看图/生图/生视频/配音——模型名需手填（该端点不提供模型列表）",
     presetOpenrouterTip: "一个 Key 聚合 400+ 模型，OpenAI 协议直连",
     presetDeepseekTip: "V4 Flash 推理+对话统一模型",
     presetKimiTip: "K2.5 支持 Agent Swarm",
@@ -86,7 +84,7 @@ export const settings: NamespaceMessages = {
     ttsSample: "这款产品真的太好用了，赶紧下单试试吧！",
     ttsTitle: "配音 TTS",
     ttsSubtitle:
-      "开启后合成会为每个分镜生成口播配音（支持 OpenAI 兼容 / Atlas Cloud / MiniMax / fal.ai）",
+      "开启后合成会为每个分镜生成口播配音（支持 OpenAI 兼容 / MiniMax / fal.ai）",
     ttsProviderLabel: "配音平台",
     ttsProviderFallback: "OpenAI 兼容",
     ttsPresetHint: "快捷预设（点击填入 baseUrl 和模型，还需填 API Key）：",
@@ -204,13 +202,13 @@ export const settings: NamespaceMessages = {
     pageSubtitle:
       "Configure your AI services to start generating commerce videos. You'll need an LLM (for scripts) plus at least one AI platform (for images/video).",
 
-    // One-key Atlas setup for newcomers
+    // One-key fal setup for newcomers
     oneKeyTitle: "Recommended · One key does it all",
-    oneKeyDesc: "Paste your Atlas Cloud API key and we'll wire up scripts + images + video + voiceover automatically — no need to configure each section below.",
-    oneKeyPlaceholder: "Paste your Atlas Cloud API key",
+    oneKeyDesc: "Paste your fal.ai API key and we'll wire up scripts + images + video + voiceover automatically (the LLM rides the fal OpenRouter route) — no need to configure each section below.",
+    oneKeyPlaceholder: "Paste your fal.ai API key",
     oneKeyCta: "Connect",
-    oneKeyDone: "Atlas Cloud connected — LLM / image / video / voiceover below are all set up. You're ready to create.",
-    oneKeyGetKey: "No key? Get one from Atlas Cloud →",
+    oneKeyDone: "fal.ai connected — LLM / image / video / voiceover below are all set up. You're ready to create.",
+    oneKeyGetKey: "No key? Get one from fal.ai →",
 
     // Tabs
     tabProviders: "Platform keys",
@@ -219,8 +217,6 @@ export const settings: NamespaceMessages = {
     tabBrand: "Branding",
 
     // AI platform descriptions/tips
-    providerAtlasDesc: "High-quality image and video generation platform supporting many AI models",
-    providerAtlasTip: "Top pick — widest model lineup at the lowest price",
     providerFalDesc: "Fast inference platform supporting Flux, SDXL and other leading image models",
     providerFalTip: "Supports the latest models like Kling 3.0 and Veo 3",
     providerReplicateDesc: "Massive model aggregator — FLUX, Imagen, Kling, Seedance, Veo and more in one place",
@@ -244,7 +240,7 @@ export const settings: NamespaceMessages = {
     // LLM config
     llmProvider: "LLM provider",
     llmPresetHint: "Quick presets (click to auto-fill baseUrl and model — you still need an API key):",
-    presetAtlasTip: "Recommended! One key for LLM, image and video generation",
+    presetFalTip: "One fal key covers script, vision, image, video and voiceover — type the model id (this endpoint exposes no model list)",
     presetOpenrouterTip: "One key for 400+ models, direct OpenAI-compatible access",
     presetDeepseekTip: "V4 Flash unified reasoning + chat model",
     presetKimiTip: "K2.5 with Agent Swarm support",
@@ -282,7 +278,7 @@ export const settings: NamespaceMessages = {
     ttsSample: "This product is amazing — order yours now and give it a try!",
     ttsTitle: "Voiceover (TTS)",
     ttsSubtitle:
-      "When enabled, composition generates a spoken voiceover for each shot (supports OpenAI-compatible / Atlas Cloud / MiniMax / fal.ai)",
+      "When enabled, composition generates a spoken voiceover for each shot (supports OpenAI-compatible / MiniMax / fal.ai)",
     ttsProviderLabel: "Voiceover platform",
     ttsProviderFallback: "OpenAI-compatible",
     ttsPresetHint: "Quick presets (click to fill baseUrl and model — you still need an API key):",

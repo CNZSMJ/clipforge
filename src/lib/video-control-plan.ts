@@ -4,7 +4,7 @@ import { getVideoModelCapabilities } from "@/lib/model-capabilities";
  * Providers whose video endpoints accept an unordered reference pack (images / video / audio)
  * instead of — or in addition to — an ordered start/end frame pair.
  */
-const REFERENCE_PACK_PROVIDERS = new Set(["atlas-cloud", "fal-ai"]);
+const REFERENCE_PACK_PROVIDERS = new Set(["fal-ai"]);
 
 /** Providers that can carry an explicit reference pack *alongside* ordered keyframes. */
 const REFERENCE_ALONGSIDE_FRAMES_PROVIDERS = new Set(["volcengine"]);

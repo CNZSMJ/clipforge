@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     // Reference-to-video inputs (viral replication): reference IMAGES may travel as Base64
     // like first frames, but reference VIDEOS must be real URLs — local /api/files paths
-    // are uploaded to the provider's temporary hosting first (Atlas /model/uploadMedia)
+    // are uploaded to the provider's temporary hosting first (fal storage, see uploadLocalMedia)
     let refVideos: string[] | undefined;
     let refImages: string[] | undefined;
     let refAudios: string[] | undefined;

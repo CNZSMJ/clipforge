@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { LuUpload, LuPalette, LuZap, LuCheck, LuTriangleAlert } from "react-icons/lu";
-import { ATLAS_KEYS_URL } from "@/lib/atlas-onekey";
+import { FAL_KEYS_URL } from "@/lib/fal-onekey";
 import { useT } from "@/lib/i18n";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useBrandStore } from "@/lib/stores/brand-store";
@@ -61,20 +61,6 @@ const SETTINGS_TABS: string[] = SETTINGS_SECTIONS.map((s) => s.id);
 
 // AI platform configuration list
 const AI_PROVIDERS = [
-  {
-    key: "atlas-cloud",
-    name: "Atlas Cloud",
-    descKey: "providerAtlasDesc",
-    tipKey: "providerAtlasTip",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-        <path d="M2 12h20" />
-      </svg>
-    ),
-    iconBg: "from-blue-500 to-cyan-500",
-  },
   {
     key: "fal-ai",
     name: "fal.ai",
@@ -163,7 +149,7 @@ const AI_PROVIDERS = [
 ];
 
 // Map Chinese vendor names by key to i18n display names (English users would otherwise see hard-coded Chinese like "火山引擎/阿里百炼/硅基流动").
-// Only overrides vendors with Chinese names; others (Atlas Cloud/OpenAI, etc.) already use English brand names and use platform.name directly.
+// Only overrides vendors with Chinese names; others (fal.ai/OpenAI, etc.) already use English brand names and use platform.name directly.
 // Note: platform.name is still used as the identity for enabledNames custom model filtering, so we only change the display, not name.
 const PROVIDER_NAME_KEYS: Record<string, string> = {
   volcengine: "providerVolcengineName",
@@ -267,16 +253,16 @@ export default function SettingsPage() {
     setDefaultAspectRatio,
     setDefaultImageModel,
     setDefaultVideoModel,
-    applyAtlasOneKey,
+    applyFalOneKey,
   } = useSettingsStore();
 
-  // one-click Atlas onboarding: a single Key auto-configures LLM/image-gen/video-gen/TTS
-  const [atlasOneKey, setAtlasOneKey] = useState("");
-  const [atlasApplied, setAtlasApplied] = useState(false);
+  // one-click fal onboarding: a single key auto-configures LLM/image-gen/video-gen/TTS
+  const [falOneKey, setFalOneKey] = useState("");
+  const [falApplied, setFalApplied] = useState(false);
   const applyOneKey = () => {
-    if (!atlasOneKey.trim()) return;
-    applyAtlasOneKey(atlasOneKey.trim());
-    setAtlasApplied(true);
+    if (!falOneKey.trim()) return;
+    applyFalOneKey(falOneKey.trim());
+    setFalApplied(true);
   };
 
   // TTS preview playback state
@@ -439,14 +425,14 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* beginner one-click setup: a single Atlas Key auto-configures LLM/image-gen/video-gen/TTS, skipping manual item-by-item setup */}
+        {/* beginner one-click setup: a single fal key auto-configures LLM/image-gen/video-gen/TTS, skipping manual item-by-item setup */}
         <div className="mb-8 rounded-2xl border border-primary/30 bg-primary/5 p-5">
           <div className="flex items-center gap-2 mb-1">
             <LuZap className="w-4 h-4 text-primary" />
             <h2 className="font-semibold text-sm">{t("oneKeyTitle")}</h2>
           </div>
           <p className="text-xs text-muted-foreground mb-3">{t("oneKeyDesc")}</p>
-          {atlasApplied ? (
+          {falApplied ? (
             <div className="flex items-center gap-2 text-sm text-emerald-400">
               <LuCheck className="w-4 h-4 shrink-0" />
               <span>{t("oneKeyDone")}</span>
@@ -455,18 +441,18 @@ export default function SettingsPage() {
             <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 type="password"
-                value={atlasOneKey}
-                onChange={(e) => setAtlasOneKey(e.target.value)}
+                value={falOneKey}
+                onChange={(e) => setFalOneKey(e.target.value)}
                 placeholder={t("oneKeyPlaceholder")}
                 className="flex-1"
               />
-              <Button onClick={applyOneKey} disabled={!atlasOneKey.trim()} className="brand-gradient text-white border-0 shrink-0">
+              <Button onClick={applyOneKey} disabled={!falOneKey.trim()} className="brand-gradient text-white border-0 shrink-0">
                 <LuZap className="w-4 h-4 mr-1.5" />
                 {t("oneKeyCta")}
               </Button>
             </div>
           )}
-          <a href={ATLAS_KEYS_URL} target="_blank" rel="noreferrer" className="inline-block mt-2 text-xs text-primary hover:underline">
+          <a href={FAL_KEYS_URL} target="_blank" rel="noreferrer" className="inline-block mt-2 text-xs text-primary hover:underline">
             {t("oneKeyGetKey")}
           </a>
         </div>
@@ -849,7 +835,7 @@ export default function SettingsPage() {
                         </>
                       ) : (
                         <>
-                          {/* Atlas / MiniMax / fal: Key (reused or custom) + optional GroupId/baseUrl + model/voice dropdowns */}
+                          {/* MiniMax / fal: Key (reused or custom) + optional GroupId/baseUrl + model/voice dropdowns */}
                           {ttsMeta.keySource === "tts" ? (
                             <div className="space-y-1.5">
                               <Label className="text-xs text-muted-foreground">{t("apiKeyLabel")}</Label>

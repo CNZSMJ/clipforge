@@ -16,11 +16,8 @@ import {
   referenceQuotaCheck,
   resolveFilmModel,
   estimateFilmSpend,
-  parseUnitUsd,
   FILM_MAX_SECONDS,
 } from "@/lib/storyboard-film";
-import { fetchAtlasCatalog, getCachedAtlasEntry } from "@/lib/providers/atlas-catalog";
-import { ATLAS_BASE_URL } from "@/lib/atlas-onekey";
 import { toRemoteUsableImage } from "@/lib/remote-image";
 import { probeMedia } from "@/lib/media-probe";
 import { recordAiTask, updateAiTask } from "@/lib/ai-tasks";
@@ -292,16 +289,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 /**
- * Published per-second price for a model, or undefined when the platform doesn't publish one.
- * The catalog endpoint is public (no key needed), so the free dryRun can price a run too.
+ * Published per-second price for a model, or undefined when we have no price source.
+ *
+ * Pricing is advisory: callers fall back to their own estimate, and a missing price must never
+ * block a run. We no longer ship a catalog to read it from, so this reports "unknown".
  */
-async function unitPriceUsd(modelId: string, baseUrl?: string): Promise<number | undefined> {
-  try {
-    await fetchAtlasCatalog(baseUrl?.trim() || ATLAS_BASE_URL);
-    return parseUnitUsd(getCachedAtlasEntry(modelId)?.priceBase);
-  } catch {
-    return undefined; // pricing is advisory — never block a run because the catalog was unreachable
-  }
+function unitPriceUsd(_modelId: string, _baseUrl?: string): number | undefined {
+  return undefined;
 }
 
 /** Download the generated film into the project's output dir and register it as a composition. */

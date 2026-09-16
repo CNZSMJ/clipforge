@@ -4,7 +4,7 @@ import { getVideoModelCapabilities, type VideoModelCapabilities } from "@/lib/mo
 import { sanitizeVideoControlSummary, type VideoControlSummary } from "@/lib/video-control-plan";
 
 /** Providers whose reference sibling can carry the source clip alongside the prompt. */
-const REFERENCE_VIDEO_PROVIDERS = new Set(["atlas-cloud", "fal-ai"]);
+const REFERENCE_VIDEO_PROVIDERS = new Set(["fal-ai"]);
 
 export type RepairScope = "temporal" | "region";
 

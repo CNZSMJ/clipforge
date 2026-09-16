@@ -20,19 +20,13 @@ export function normalizeBase(baseUrl: string): string {
   return String(baseUrl).replace(/\/+$/, "");
 }
 
+
 /**
- * Rewrite Atlas Cloud's media base onto its chat base.
- *
- * Atlas serves two gateways on one host: media/predictions under `/api/v1` and the
- * OpenAI-compatible chat API under `/v1`. A chat request sent to `/api/v1` answers 404 with an
- * empty body, so the app reported "endpoint or model not found" for a model that is very much on
- * sale (issue #24) — and `/api/v1/models` lists media models keyed by `model`, not `id`, so even
- * the "here are the real model names" hint came back empty. The media base is what the Atlas key
- * console shows, so it keeps landing in the LLM field; repair it at the door rather than at every
- * call site. Host-scoped, so a self-hosted proxy that happens to serve `/api/v1` is left alone.
+ * Base URL used for chat and model-list calls. Kept as a named seam so every caller normalises the
+ * same way; a vendor that serves chat and media on different paths is handled by its own preset.
  */
 export function normalizeChatBase(baseUrl: string): string {
-  return normalizeBase(baseUrl).replace(/^(https?:\/\/api\.atlascloud\.ai)\/api\/v1$/i, "$1/v1");
+  return normalizeBase(baseUrl);
 }
 
 /** True for a local Ollama endpoint — its model ids carry a `:tag` that must be typed in full. */

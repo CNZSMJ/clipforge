@@ -438,7 +438,7 @@ export class FalAIProvider extends BaseProvider {
       // ==================== video generation ====================
       // --- ByteDance Seedance 2.5 (flagship: 4-30s, native audio/speech; fal endpoint has no fal-ai/ prefix) ---
       // reference-to-video deliberately not listed: fal's variant needs a dedicated reference_image_urls
-      // body this provider doesn't build — the grid-to-film pass runs on Atlas Cloud instead
+      // body this provider builds from the endpoint spec (see fal-video-params.ts)
       {
         id: 'bytedance/seedance-2.5/text-to-video',
         name: 'Seedance 2.5 (文生视频)',
