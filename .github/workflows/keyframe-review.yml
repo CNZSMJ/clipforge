@@ -29,7 +29,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Install media tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
       - name: Typecheck
@@ -56,9 +56,10 @@ jobs:
             if curl --fail --silent http://localhost:3107/api/health > /dev/null; then break; fi
             sleep 1
           done
-          python3 scripts/check-keyframe-browser.py
+          set -o pipefail
+          python3 scripts/check-keyframe-browser.py 2>&1 | tee "$RUNNER_TEMP/keyframe-browser-client.log"
       - name: Confirm verification preserved source tree
-        run: git diff --exit-code && test "$(git write-tree)" = db414444fe7da1633c0388bcb793e4c1fcd14d98
+        run: git diff --exit-code && test "$(git write-tree)" = 27b8bb4194a2b9a2b681227b3f6efee9029ebe0e
       - name: Preserve verification evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,6 +71,7 @@ jobs:
             /tmp/keyframe-lint.log
             ${{ runner.temp }}/keyframe-browser-evidence
             ${{ runner.temp }}/keyframe-browser-server.log
+            ${{ runner.temp }}/keyframe-browser-client.log
           retention-days: 14
   prepare-commit:
     needs: verify
@@ -114,10 +116,10 @@ jobs:
                   mode = subprocess.check_output(['git','ls-files','--stage','--',name],text=True).split()[0]
                   entries.append({'path':name,'mode':mode,'type':'blob','content':pathlib.Path(name).read_text()})
           tree = request('/git/trees', {'base_tree':base, 'tree':entries})['sha']
-          if tree != 'db414444fe7da1633c0388bcb793e4c1fcd14d98':
+          if tree != '27b8bb4194a2b9a2b681227b3f6efee9029ebe0e':
               raise RuntimeError('Remote tree differs from tested tree: ' + tree)
           commit = request('/git/commits', {'tree':tree, 'parents':[parent],
-              'message':'feat(keyframes): ship reference-aware image planning and approval workspace\n\nProject/scene art direction, role-scoped reference inputs, physically grounded single-frame specifications, candidate corrections, scene anchors, optional paid planning/QC, recoverable single-submit jobs and downstream video/composition approval gates. Beginner-friendly bilingual UI, migration and 77 regression cases. Exact tree verified by typecheck, lint, full suite, production build and real desktop/mobile browser workflow. No live paid inference or claimed visual success-rate uplift. Remove temporary review transport.'})['sha']
+              'message':'feat(keyframes): ship reference-aware image planning and approval workspace\n\nProject/scene art direction, role-scoped reference inputs, physically grounded single-frame specifications, candidate corrections, scene anchors, optional paid planning/QC, recoverable single-submit jobs and downstream video/composition approval gates. Beginner-friendly bilingual UI, migration and 78 regression cases. Exact tree verified by typecheck, lint, full suite, production build and real desktop/mobile browser workflow. No live paid inference or claimed visual success-rate uplift. Remove temporary review transport.'})['sha']
           pathlib.Path('/tmp/keyframe-publish.json').write_text(json.dumps({'parent':parent,'tree':tree,'commit':commit},indent=2))
           print('Prepared verified commit:', commit)
           PY
