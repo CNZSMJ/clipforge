@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/i18n";
+import { isFalOpenRouter } from "@/lib/llm-models";
 
 interface ModelPickerProps {
   baseUrl: string;
@@ -16,6 +17,7 @@ export function ModelPicker(props: ModelPickerProps) {
 
 function EndpointModelPicker({ baseUrl, apiKey, onPick }: ModelPickerProps) {
   const t = useT("settings");
+  const publicCatalog = isFalOpenRouter(baseUrl);
   const [state, setState] = useState<"idle" | "loading">("idle");
   const [models, setModels] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -44,11 +46,18 @@ function EndpointModelPicker({ baseUrl, apiKey, onPick }: ModelPickerProps) {
       const data = await res.json().catch(() => ({ ok: false }));
       if (request.current !== controller) return;
       if (controller.signal.aborted) throw new Error("MODEL_LIST_TIMEOUT");
-      if (!res.ok || !data.ok || !Array.isArray(data.models)) throw new Error("MODEL_LIST_UNAVAILABLE");
+      if (!res.ok || !data.ok || !Array.isArray(data.models)) throw new Error(typeof data.errorCode === "string" ? data.errorCode : "MODEL_LIST_UNAVAILABLE");
       setModels([...new Set<string>(data.models.filter((model: unknown): model is string => typeof model === "string" && model.trim().length > 0))]);
       setLoaded(true);
-    } catch {
-      if (request.current === controller) setError(t("modelListFailed"));
+    } catch (cause) {
+      if (request.current === controller) {
+        const code = controller.signal.aborted ? "MODEL_LIST_TIMEOUT" : cause instanceof Error ? cause.message : "";
+        const key = publicCatalog ? "modelListPublicFailed"
+          : code === "MODEL_LIST_AUTH" ? "modelListAuthFailed"
+          : code === "MODEL_LIST_UNSUPPORTED" ? "modelListUnsupported"
+          : code === "MODEL_LIST_TIMEOUT" ? "modelListTimedOut" : "modelListFailed";
+        setError(t(key));
+      }
     } finally {
       clearTimeout(timeout);
       if (request.current === controller) setState("idle");
@@ -66,8 +75,9 @@ function EndpointModelPicker({ baseUrl, apiKey, onPick }: ModelPickerProps) {
         disabled={!baseUrl.trim() || state === "loading"}
         className="min-h-9 text-xs text-primary underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
       >
-        {state === "loading" ? t("modelListLoading") : t("modelListButton")}
+        {state === "loading" ? t("modelListLoading") : t(publicCatalog ? "modelListPublicButton" : "modelListButton")}
       </button>
+      {publicCatalog && <p role="status" className="text-xs text-muted-foreground">{t("modelListPublicNote")}</p>}
       {error && <p role="alert" className="text-xs text-destructive break-all">{error}</p>}
       {loaded && models.length === 0 && <p role="status" className="text-xs text-muted-foreground">{t("modelListEmpty")}</p>}
       {models.length > 0 && (

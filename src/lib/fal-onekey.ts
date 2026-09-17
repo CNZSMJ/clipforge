@@ -8,8 +8,8 @@
  * The LLM route is fal's OpenRouter gateway: OpenAI-compatible, shares the fal key.
  * Use the documented `Authorization: Key <FAL_KEY>` scheme for this gateway.
  *
- * Caveat: `GET {base}/models` returns 404, so the settings "read available models" button cannot
- * enumerate this endpoint — the model id has to be typed.
+ * The gateway has no GET /models. Settings discover names via OpenRouter's public catalogue
+ * without forwarding the Fal key; the selected model still needs a separate connection test.
  */
 
 /** OpenAI-compatible chat gateway on fal (OpenRouter router); NOT the media queue host. */

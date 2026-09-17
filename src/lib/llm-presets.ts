@@ -23,7 +23,7 @@ export interface LLMPreset {
 
 export const LLM_PRESETS: LLMPreset[] = [
   // fal.ai rides its OpenRouter gateway: one fal key covers the LLM too (verified 2026-09-15).
-  // There is no /models endpoint, so the model id is typed rather than picked.
+  // Discovery uses the public OpenRouter catalogue; model-level access is tested separately.
   { label: "fal.ai (OpenRouter)", baseUrl: FAL_LLM_BASE_URL, model: FAL_ONEKEY_MODELS.llm, tipKey: "presetFalTip" },
   // DeepSeek V4 Pro: flagship writing quality with clean JSON output (real-request verified
   // 2026-08; the v3.2 default before it leaked thinking text into JSON and broke generation)

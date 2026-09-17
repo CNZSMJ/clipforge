@@ -66,3 +66,44 @@ describe("模型目录配置隔离", () => {
     expect(container.textContent).toContain("available-model");
   });
 });
+
+describe("Fal public catalogue UI", () => {
+  const falBase = "https://fal.run/openrouter/router/openai/v1";
+  it("loads/selects names, labels the public source, and never changes a model just by loading", async () => {
+    fetchMock.mockResolvedValueOnce(reply(["google/gemini-2.5-flash", "anthropic/example"]));
+    await render(falBase, "fal-key");
+    expect(container.textContent).toContain("modelListPublicButton");
+    expect(container.textContent).toContain("modelListPublicNote");
+    await load();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain("google/gemini-2.5-flash");
+    expect(pick).not.toHaveBeenCalled();
+    await act(async () => (container.querySelectorAll("button")[1] as HTMLButtonElement).click());
+    expect(pick).toHaveBeenCalledWith("google/gemini-2.5-flash");
+  });
+
+  it("a catalogue outage is not presented as an invalid Fal key; retry works", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: false, models: [], source: "openrouter-public", errorCode: "MODEL_LIST_UNAVAILABLE" })));
+    await render(falBase, "fal-key"); await load();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("modelListPublicFailed");
+    expect(pick).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValueOnce(reply(["recovered"]));
+    await load();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain("recovered");
+  });
+
+  it.each([["MODEL_LIST_AUTH", "modelListAuthFailed"], ["MODEL_LIST_UNSUPPORTED", "modelListUnsupported"], ["MODEL_LIST_TIMEOUT", "modelListTimedOut"]])("renders %s without exposing upstream error text", async (errorCode, expected) => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: false, models: [], errorCode, error: "sensitive upstream text" })));
+    await render(); await load();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(expected);
+    expect(container.textContent).not.toContain("sensitive upstream text");
+  });
+
+  it("empty success renders the empty state, not a false error", async () => {
+    fetchMock.mockResolvedValueOnce(reply([]));
+    await render(falBase, "fal-key"); await load();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain("modelListEmpty");
+  });
+});

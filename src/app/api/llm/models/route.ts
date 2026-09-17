@@ -1,39 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errText } from "@/lib/api-error";
-import { listModels } from "@/lib/llm-models";
+import { discoverModels } from "@/lib/llm-models";
 
-/**
- * List the models an OpenAI-compatible endpoint exposes, so Settings can offer them instead of making
- * the user type a name from memory.
- *
- * Local Ollama is the case that forced this: `ollama pull qwen2.5:7b-instruct` installs a model whose
- * id carries a tag, while the preset ships the bare `qwen2.5`, and the only feedback was a 404
- * (issue #19 follow-up). Runs server-side because provider APIs block browser CORS.
- */
+/** Server-side catalogue lookup, separate from the model-level connection probe. */
 export async function POST(req: NextRequest) {
-  try {
-    const { baseUrl, apiKey } = await req.json();
-    if (!baseUrl) {
-      return NextResponse.json({ ok: false, error: errText(req, "缺少 baseUrl", "Missing baseUrl") }, { status: 400 });
-    }
-    const models = await listModels(String(baseUrl), String(apiKey || ""));
-    if (models.length === 0) {
-      return NextResponse.json({
-        ok: false,
-        models: [],
-        error: errText(
-          req,
-          "读不到模型列表：请检查地址/Key 是否正确，本地 Ollama 需先 `ollama serve` 并 `ollama pull` 至少一个模型",
-          "Could not read the model list: check the endpoint/key — a local Ollama needs `ollama serve` plus at least one `ollama pull`",
-        ),
-      });
-    }
-    return NextResponse.json({ ok: true, models });
-  } catch (error) {
-    return NextResponse.json({
-      ok: false,
-      models: [],
-      error: error instanceof Error ? error.message : errText(req, "读取失败", "Request failed"),
-    });
+  const reply = (body: unknown, status = 200) => NextResponse.json(body, {
+    status, headers: { "Cache-Control": "no-store" },
+  });
+  let body;
+  try { body = await req.json(); }
+  catch { return reply({ ok: false, models: [], errorCode: "INVALID_REQUEST", error: errText(req, "无效 JSON", "Invalid JSON") }, 400); }
+  const { baseUrl, apiKey = "" } = body ?? {};
+  let validUrl = false;
+  if (typeof baseUrl === "string" && baseUrl.trim() && baseUrl.length <= 2048) {
+    try {
+      const url = new URL(baseUrl.trim());
+      // Local Ollama/custom HTTP endpoints are intentional; never allow embedded credentials.
+      validUrl = ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
+    } catch { /* invalid endpoint */ }
   }
+  if (!validUrl || typeof apiKey !== "string" || apiKey.length > 4096) {
+    return reply({ ok: false, models: [], errorCode: "INVALID_REQUEST", error: errText(req, "无效服务地址或密钥格式", "Invalid endpoint or key format") }, 400);
+  }
+  const result = await discoverModels(baseUrl, apiKey);
+  return reply(result.ok ? result : {
+    ...result,
+    // Only stable, local text is returned. Upstream errors may contain URLs or credentials.
+    error: errText(req, "暂时无法读取模型目录，可重试或手动填写模型名。", "Could not read the model catalogue; retry or enter a model name manually."),
+  });
 }

@@ -17,7 +17,7 @@ export interface ModelHint {
 
 /** Strip trailing slashes so `${base}/models` never doubles up. */
 export function normalizeBase(baseUrl: string): string {
-  return String(baseUrl).replace(/\/+$/, "");
+  return String(baseUrl).trim().replace(/\/+$/, "");
 }
 
 
@@ -41,27 +41,80 @@ export function isOllama(baseUrl?: string): boolean {
   return /:11434(\/|$)|\bollama\b/i.test(baseUrl || "");
 }
 
-/**
- * List the model ids an endpoint advertises. Returns [] on any failure: this only ever enriches an
- * existing message, so a dead or missing /models must never become an error of its own.
+/** Only the official fal chat gateway uses OpenRouter's public discovery service.
+ * Custom gateways (including proxies with a similar path) retain their own /models endpoint.
  */
+export function isFalOpenRouter(baseUrl?: string): boolean {
+  try {
+    const url = new URL(normalizeChatBase(baseUrl || ""));
+    return url.protocol === "https:" && url.hostname === "fal.run" && !url.port &&
+      !url.username && !url.password && !url.search && !url.hash &&
+      url.pathname === "/openrouter/router/openai/v1";
+  } catch { return false; }
+}
+
+export const OPENROUTER_PUBLIC_MODELS_URL = "https://openrouter.ai/api/v1/models";
+export type ModelListSource = "endpoint" | "openrouter-public";
+export type ModelListErrorCode =
+  | "MODEL_LIST_AUTH" | "MODEL_LIST_UNSUPPORTED" | "MODEL_LIST_TIMEOUT"
+  | "MODEL_LIST_UNAVAILABLE" | "MODEL_LIST_INVALID_RESPONSE";
+export type ModelDiscoveryResult =
+  | { ok: true; models: string[]; source: ModelListSource }
+  | { ok: false; models: string[]; source: ModelListSource; errorCode: ModelListErrorCode };
+
+/**
+ * Discover names, NOT account permissions. fal exposes chat completions but no GET /models.
+ * Use the public OpenRouter catalogue for that gateway WITHOUT forwarding the fal key.
+ * Empty, unsupported, authentication failure and transient failure are different outcomes.
+ * No generation requests, static model guesses or persisted-setting changes occur here.
+ */
+export async function discoverModels(
+  baseUrl: string,
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ModelDiscoveryResult> {
+  const source: ModelListSource = isFalOpenRouter(baseUrl) ? "openrouter-public" : "endpoint";
+  const failure = (errorCode: ModelListErrorCode): ModelDiscoveryResult => ({ ok: false, models: [], source, errorCode });
+  const signal = AbortSignal.timeout(MODELS_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(source === "openrouter-public"
+      ? OPENROUTER_PUBLIC_MODELS_URL : `${normalizeChatBase(baseUrl)}/models`, {
+      // A Fal key must never reach OpenRouter, including through redirects or cookies.
+      headers: source === "openrouter-public" ? { Accept: "application/json" } : llmAuthHeaders(baseUrl, apiKey),
+      credentials: "omit",
+      redirect: "error",
+      cache: "no-store",
+      signal,
+    });
+    if (!res.ok) {
+      // Consume/cancel unused responses so failed lookups do not tie up HTTP connections.
+      await res.body?.cancel().catch(() => undefined);
+      if (res.status === 401 || res.status === 403) return failure("MODEL_LIST_AUTH");
+      if (res.status === 404 || res.status === 405 || res.status === 501) return failure("MODEL_LIST_UNSUPPORTED");
+      return failure("MODEL_LIST_UNAVAILABLE");
+    }
+    let json: { data?: Array<{ id?: unknown }> } | null;
+    try { json = await res.json(); }
+    catch { return failure(signal.aborted ? "MODEL_LIST_TIMEOUT" : "MODEL_LIST_INVALID_RESPONSE"); }
+    if (signal.aborted) return failure("MODEL_LIST_TIMEOUT");
+    if (!Array.isArray(json?.data)) return failure("MODEL_LIST_INVALID_RESPONSE");
+    const models = [...new Set(json.data.map((m) => typeof m?.id === "string" ? m.id.trim() : "").filter(Boolean))];
+    // A genuine empty catalogue is OK. A populated payload with no valid IDs is malformed.
+    if (json.data.length > 0 && models.length === 0) return failure("MODEL_LIST_INVALID_RESPONSE");
+    return { ok: true, models, source };
+  } catch (error) {
+    const timedOut = signal.aborted || (error instanceof Error && /^(TimeoutError|AbortError)$/.test(error.name));
+    return failure(timedOut ? "MODEL_LIST_TIMEOUT" : "MODEL_LIST_UNAVAILABLE");
+  }
+}
+
+/** Best-effort wrapper for existing error hints; discovery failures never mask a generation error. */
 export async function listModels(
   baseUrl: string,
   apiKey: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string[]> {
-  try {
-    const res = await fetchImpl(`${normalizeChatBase(baseUrl)}/models`, {
-      headers: llmAuthHeaders(baseUrl, apiKey),
-      signal: AbortSignal.timeout(MODELS_TIMEOUT_MS),
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { data?: Array<{ id?: unknown }> };
-    if (!Array.isArray(json?.data)) return [];
-    return json.data.map((m) => (typeof m?.id === "string" ? m.id : "")).filter(Boolean);
-  } catch {
-    return [];
-  }
+  return (await discoverModels(baseUrl, apiKey, fetchImpl)).models;
 }
 
 /**
@@ -89,6 +142,13 @@ export function modelListHint(models: string[], wanted?: string, baseUrl?: strin
   const listEn = `${shown.join(", ")}${models.length > shown.length ? `… (${models.length} total)` : ""}`;
   const tagNote = isOllama(baseUrl) ? "（Ollama 的模型名必须写全，含 :tag）" : "";
   const tagNoteEn = isOllama(baseUrl) ? " (Ollama model names must include the :tag)" : "";
+
+  if (isFalOpenRouter(baseUrl)) {
+    return {
+      zh: `OpenRouter 公共模型目录：${list}。这不是 Fal 账户授权列表，请用所选模型测试连接。`,
+      en: `OpenRouter public model catalogue: ${listEn}. This does not verify Fal account access; test the selected model's connection.`,
+    };
+  }
 
   return {
     zh: `${guess ? `是不是想填「${guess}」？` : ""}该地址实际可用的模型：${list}${tagNote}`,
