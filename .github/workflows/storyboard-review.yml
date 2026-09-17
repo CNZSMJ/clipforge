@@ -12,7 +12,7 @@ concurrency:
   group: storyboard-prompt-review
   cancel-in-progress: false
 env:
-  EXPECTED_TREE: be6e8fff211f66351db3a4a6385ee5b5f097c6ef
+  EXPECTED_TREE: 317e79041611e7aec062e8d6ec620e3e4f9a00a5
   ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
   NEXT_TELEMETRY_DISABLED: '1'
 jobs:
@@ -30,8 +30,8 @@ jobs:
           python3 .github/apply-storyboard-review.py
           git add -A
           git diff --cached --check
-          test "$(git write-tree)" = "$EXPECTED_TREE"
           git write-tree > /tmp/storyboard-tree.txt
+          test "$(cat /tmp/storyboard-tree.txt)" = "$EXPECTED_TREE"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
