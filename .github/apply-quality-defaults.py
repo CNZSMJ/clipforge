@@ -20,6 +20,9 @@ REPLACEMENTS = [
  ('src/lib/llm-error.ts', 'fetch: optionalParamRetryFetch(tokenCapRetryFetch(retryFreePool402 ? freePoolRetryFetch() : fetch)),', 'fetch: qualityModelFetch(config.baseUrl, optionalParamRetryFetch(tokenCapRetryFetch(retryFreePool402 ? freePoolRetryFetch() : fetch))),'),
  ('src/lib/llm-probe.ts', 'import { explainLLMStatus,', 'import { qualityModelFetch } from "@/lib/llm-quality-policy";\nimport { explainLLMStatus,'),
  ('src/lib/llm-probe.ts', 'const res = await fetchImpl(`${base}/chat/completions`, {', 'const res = await qualityModelFetch(base, fetchImpl, true)(`${base}/chat/completions`, {'),
+ ('src/lib/__tests__/llm-model-discovery.test.ts', 'id: "google/gemini-2.5-flash"', 'id: FAL_ONEKEY_MODELS.llm'),
+ ('src/lib/__tests__/llm-model-discovery.test.ts', '    const hint = modelListHint(', '    const defaultsBefore = { ...FAL_ONEKEY_MODELS };\n    const hint = modelListHint('),
+ ('src/lib/__tests__/llm-model-discovery.test.ts', '    expect(FAL_ONEKEY_MODELS.llm).toBe("google/gemini-2.5-flash");\n    expect(FAL_ONEKEY_MODELS.vision).toBe("google/gemini-2.5-flash");', '    expect(FAL_ONEKEY_MODELS).toEqual(defaultsBefore);'),
 ]
 LINES = [
  ('oneKeyDesc', 0, '填 fal.ai API Key，默认使用 Claude Fable 5.1 写脚本、GPT-6 Astra 看图与质检，并配置图/视频/配音。质量优先，推理耗时与费用高于 Flash；不会自动发起收费测试。'),
