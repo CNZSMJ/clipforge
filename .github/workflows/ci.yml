@@ -1,15 +1,14 @@
-# CI 流水线：push / PR 自动跑 lint + 单测 + 生产构建
+# CI 流水线：每次 push / PR 自动跑 lint + 单测 + 生产构建
+# 对应本地命令：pnpm lint / pnpm test / pnpm build（三步全绿才算通过）
 name: CI
 
 on:
   push:
-    branches: [main, feat/fal-migration]
+    branches: [main]
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
-
+# 同一分支只保留最新一次运行，节省额度
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -18,26 +17,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # CI 只做 lint/test/build，不打包 Electron——跳过 Electron 二进制下载(~150MB)，保持安装快
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # Reproducible, tracked-files-only snapshot for the migration audit. No secrets,
-      # working files, dependencies or credentials are included in git archive.
-      - name: Export migration review snapshot
-        if: github.ref == 'refs/heads/feat/fal-migration'
-        run: git archive --format=tar.gz --output=review-source.tar.gz HEAD
-
-      - name: Retain migration review snapshot
-        if: github.ref == 'refs/heads/feat/fal-migration'
-        uses: actions/upload-artifact@v4
-        with:
-          name: migration-review-source
-          path: review-source.tar.gz
-          retention-days: 3
-
+      # pnpm 版本由 package.json 的 packageManager 字段决定，这里不再重复指定（否则报版本冲突）
       - name: 安装 pnpm
         uses: pnpm/action-setup@v4
 
@@ -47,6 +34,8 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # ffmpeg-static 的 linux-x64 静态包（johnvansickle 构建）自 FFmpeg 7.x 起缺 harfbuzz、
+      # 没有 drawtext 滤镜；装发行版 ffmpeg 作为回退，让 drawtext 真渲染回归测试在 CI 上真实执行
       - name: 安装系统 ffmpeg（供 drawtext 真渲染测试回退使用）
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
@@ -57,9 +46,7 @@ jobs:
         run: pnpm lint
 
       - name: 单元测试
-        if: success() || failure()
         run: pnpm test
 
       - name: 生产构建
-        if: success() || failure()
         run: pnpm build
