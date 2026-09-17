@@ -17,6 +17,7 @@ import { useCharacterStore } from "@/lib/stores/project-store";
 import type { Shot } from "@/lib/db/schema";
 import { buildAssetRows, shouldOfferStockFill, needsImageModelWarning, nextChainKeyframe, type AssetItem, chainByDefault } from "@/lib/assets-view";
 import { realMixFromRows, shotReality } from "@/lib/real-mix";
+import { getVideoModelCapabilities } from "@/lib/model-capabilities";
 import { buildMotionPrompt } from "@/lib/motion-prompt";
 import { keyframeInstantLine, keyframeStaticWarnings } from "@/lib/prompt-lint";
 import { applyRetakePatch, RETAKE_SYMPTOMS, type RetakeSymptom } from "@/lib/retake-patch";
@@ -32,7 +33,7 @@ import {
   type CameraPresetCategory,
 } from "@/lib/camera-presets";
 import { LOOK_PRESETS, getLookPreset, lookImageSuffix } from "@/lib/look-presets";
-import { realFaceLine } from "@/lib/presenters";
+import { renderModeDirection, shotSpeakerVisible, shotScopedIntent } from "@/lib/storyboard-render-direction";
 import { modelSupportsLastFrame } from "@/lib/video-composer/transitions";
 import {
   buildVideoControlPlan,
@@ -110,6 +111,8 @@ export default function AssetsPage() {
   const [contentType, setContentType] = useState<string>("");
   // project product category — unlocks the category physical-realism layers in the i2v motion prompt
   const [projectCategory, setProjectCategory] = useState<string>("");
+  const [projectVideoMode, setProjectVideoMode] = useState<string>("");
+  const [scriptStyleType, setScriptStyleType] = useState<string>("");
   const [projectCreativeIntent, setProjectCreativeIntent] = useState<CreativeIntent>({ subject: "" });
   const [projectVisualBible, setProjectVisualBible] = useState<VisualBible>({ characterAnchors: [], productAnchors: [], wardrobeAnchors: [], environmentAnchors: [], lightingAnchors: [], forbiddenChanges: [] });
   // real tail frames of videos generated THIS session (shotId → extracted last-frame URL);
@@ -200,6 +203,7 @@ export default function AssetsPage() {
           setProductImages(imgs);
           setContentType(typeof project.contentType === "string" ? project.contentType : "");
           setProjectCategory(typeof project.productCategory === "string" ? project.productCategory : "");
+          setProjectVideoMode(typeof project.videoMode === "string" ? project.videoMode : "");
           setProjectCreativeIntent(sanitizeCreativeIntent(project.creativeIntent));
           setProjectVisualBible(sanitizeVisualBible(project.visualBible));
           if (Array.isArray(project.productionWorkflow)) {
@@ -220,6 +224,7 @@ export default function AssetsPage() {
         }
         // remember which script row the view came from — camera edits PATCH back into it
         setScriptId(typeof selected.id === "string" ? selected.id : "");
+      setScriptStyleType(typeof selected.styleType === "string" ? selected.styleType : "");
 
         // selected script shots + persisted assets → view rows (shared pure function used by "refresh after filling visuals")
         const rows = buildAssetRows(selected.shots as Shot[], Array.isArray(savedAssets) ? savedAssets : [], imgs);
@@ -247,11 +252,19 @@ export default function AssetsPage() {
     const scripts = scriptsRes.ok ? await scriptsRes.json() : [];
     const savedAssets = assetsRes.ok ? await assetsRes.json() : [];
     const imgs: string[] = project && Array.isArray(project.productImages) ? project.productImages : [];
+    if (project) {
+      setProductImages(imgs);
+      setContentType(typeof project.contentType === "string" ? project.contentType : "");
+      setProjectVideoMode(typeof project.videoMode === "string" ? project.videoMode : "");
+      setProjectCreativeIntent(sanitizeCreativeIntent(project.creativeIntent));
+      setProjectVisualBible(sanitizeVisualBible(project.visualBible));
+    }
     const selected = Array.isArray(scripts)
       ? scripts.find((s: { selected?: boolean }) => s.selected) ?? scripts[0]
       : null;
     if (selected && Array.isArray(selected.shots)) {
       setScriptId(typeof selected.id === "string" ? selected.id : "");
+      setScriptStyleType(typeof selected.styleType === "string" ? selected.styleType : "");
       const rows = buildAssetRows(selected.shots as Shot[], Array.isArray(savedAssets) ? savedAssets : [], imgs);
       for (const row of rows) if (row.lastFrameUrl) lastFrameByShot.current.set(row.shotId, row.lastFrameUrl);
       setAssets(rows);
@@ -576,17 +589,20 @@ export default function AssetsPage() {
       setMotionShots((prev) => new Set(prev).add(shotId));
       // Motion prompt, not the static image prompt: the first frame already fixes the
       // composition — the text's job is camera path + subject action + fidelity constraints
+      const renderContext = { contentType, videoMode: projectVideoMode, styleType: scriptStyleType };
+      const visibleSpeaker = shotSpeakerVisible(asset, renderContext);
       const motionPrompt = buildMotionPrompt({
         shotType: asset?.type,
         camera: asset?.camera,
         description: asset?.description,
+        videoMode: contentType === "topic" ? undefined : projectVideoMode, styleType: scriptStyleType,
         productShot: asset?.visualSource === "product_image" || PRODUCT_SHOT_TYPES.has(asset?.type ?? ""),
         chainToNext: !!chainFrame,
         intensity: motionIntensity,
-        personShot: !!asset?.characterId,
-        // a character WITH a line is a talking shot: mid-conversation direction + rotating
-        // behavior beats (seeded by shot position so a batch never repeats the same gestures)
-        talking: !!asset?.characterId && !!asset?.voiceover?.trim(),
+        personShot: visibleSpeaker,
+        nativeAudio: getVideoModelCapabilities(videoModelTarget.model, videoModelTarget.supportsAudio, videoModelTarget.provider).nativeAudio === true,
+        // Voice identity alone is not an on-camera performance; honor the explicit flag/mode.
+        talking: visibleSpeaker && !!asset?.voiceover?.trim(),
         beatSeed: assets.findIndex((a) => a.shotId === shotId),
         // global look: short lighting anchor keeps the palette from drifting through the i2v pass;
         // "real"-family looks also prepend their camera-identity opener (front tokens weigh most)
@@ -600,7 +616,7 @@ export default function AssetsPage() {
       // Base = the freshly rebuilt prompt — deterministic, so with unchanged settings it equals
       // what the previous submit sent, and the patch is the only difference.
       const projectDirection = compileCreativePrompt({
-        ...projectCreativeIntent,
+        ...shotScopedIntent(projectCreativeIntent, asset),
         continuity: [...(projectCreativeIntent.continuity ?? []), ...projectVisualBible.characterAnchors, ...projectVisualBible.wardrobeAnchors, ...projectVisualBible.environmentAnchors, ...projectVisualBible.lightingAnchors],
         productConstraints: [...(projectCreativeIntent.productConstraints ?? []), ...projectVisualBible.productAnchors],
       });
@@ -613,7 +629,7 @@ export default function AssetsPage() {
       const assetIndex = assets.findIndex((item) => item.shotId === shotId);
       const previousAsset = assetIndex > 0 ? assets[assetIndex - 1] : undefined;
       const previousTail = previousAsset?.lastFrameUrl ?? (previousAsset ? lastFrameByShot.current.get(previousAsset.shotId) : undefined);
-      const characterReference = asset?.characterId
+      const characterReference = visibleSpeaker && asset?.characterId
         ? presenterLib.find((character) => character.id === asset.characterId)?.referenceImages?.[0] ?? presenterSheet
         : undefined;
       const productReference = productSafe && (asset?.visualSource === "product_image" || PRODUCT_SHOT_TYPES.has(asset?.type ?? ""))
@@ -629,7 +645,7 @@ export default function AssetsPage() {
         productReferenceUrl: productReference,
         continuityReferenceUrl: previousTail,
         voiceover: asset?.voiceover,
-        speakerVisible: Boolean(asset?.characterId),
+        speakerVisible: visibleSpeaker,
         description: asset?.description,
         locale,
       });
@@ -713,7 +729,7 @@ export default function AssetsPage() {
         });
       }
     },
-    [assets, videoModelTarget, id, videoParams, motionIntensity, motionRealism, chainMode, projectCategory, projectCreativeIntent, projectVisualBible, visualLook, productSafe, productImages, presenterLib, presenterSheet, saveVideoAsset, reloadPendingTasks, t, locale]
+    [assets, videoModelTarget, id, videoParams, motionIntensity, motionRealism, chainMode, contentType, projectVideoMode, scriptStyleType, projectCategory, projectCreativeIntent, projectVisualBible, visualLook, productSafe, productImages, presenterLib, presenterSheet, saveVideoAsset, reloadPendingTasks, t, locale]
   );
 
   // actually generate a single asset. Returns the saved static keyframe URL (undefined on failure) so
@@ -762,9 +778,10 @@ export default function AssetsPage() {
       const genModel = useProductSafe ? toEditVariant(modelTarget.model) : modelTarget.model;
       const genMode = useProductSafe ? "image-to-image" : "text-to-image";
       const basePrompt = asset.prompt || asset.description;
-      // cast shots: pin the anti-"AI face" realism constraint onto the keyframe too,
-      // so the person is ordinary-looking from the very first frame the i2v runs on
-      const castSuffix = asset.characterId ? `。${realFaceLine(basePrompt)}` : "";
+      // A characterId assigns a voice, not an on-camera human. Respect the chosen medium
+      // and people boundary for every keyframe, including product-voice and silent shots.
+      const language = /[一-鿿぀-ヿ가-힯]/.test(basePrompt) ? "zh" : "en";
+      const castSuffix = `。${renderModeDirection({ contentType, videoMode: projectVideoMode, styleType: scriptStyleType }, language)}`;
       // global look: one lighting/palette block across every keyframe keeps shots in one video
       // from drifting between styles (the LLM improvises style words per shot otherwise)
       const lookText = lookImageSuffix(visualLook, basePrompt);
@@ -777,7 +794,7 @@ export default function AssetsPage() {
         ? `${basePrompt}。严格保持商品的外观、包装、颜色、logo 和文字完全不变，只重绘符合描述的场景、背景与光线。${castSuffix}${lookSuffix}${frameSuffix}`
         : `${basePrompt}${castSuffix}${lookSuffix}${frameSuffix}`;
       const projectDirection = compileCreativePrompt({
-        ...projectCreativeIntent,
+        ...shotScopedIntent(projectCreativeIntent, asset),
         continuity: [...(projectCreativeIntent.continuity ?? []), ...projectVisualBible.characterAnchors, ...projectVisualBible.wardrobeAnchors, ...projectVisualBible.environmentAnchors, ...projectVisualBible.lightingAnchors],
         productConstraints: [...(projectCreativeIntent.productConstraints ?? []), ...projectVisualBible.productAnchors],
       });
@@ -838,11 +855,11 @@ export default function AssetsPage() {
         return undefined;
       }
     },
-    [assets, modelTarget, productImages, productSafe, imageParams, autoMotion, videoModelTarget, projectCreativeIntent, projectVisualBible, visualLook, generateMotion, reloadPendingTasks, id, t]
+    [assets, modelTarget, productImages, productSafe, imageParams, autoMotion, videoModelTarget, contentType, projectVideoMode, scriptStyleType, projectCreativeIntent, projectVisualBible, visualLook, generateMotion, reloadPendingTasks, id, t]
   );
 
   // storyboard grid: ONE image generation renders every shot as a 3x3 grid cell (person /
-  // outfit / room / light physically identical), the server crops cells into per-shot
+  // identity with within-scene layout/light continuity), the server crops cells into per-shot
   // keyframes — then the normal per-shot "animate" i2v pass takes over
   const runStoryboardGrid = useCallback(async () => {
     if (!modelTarget || !scriptId || isGridGenerating) return;

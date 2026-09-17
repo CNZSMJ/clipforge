@@ -5,6 +5,8 @@ import { getDb } from "@/lib/db";
 import { scripts as scriptsTable, projects } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { apiError, errText } from "@/lib/api-error";
+import { compileCreativePrompt, sanitizeCreativeIntent, sanitizeVisualBible } from "@/lib/production-system";
+import { projectVisualDirection } from "@/lib/storyboard-render-direction";
 import { llmErrorPair } from "@/lib/llm-error";
 
 const VALID_NARRATION = new Set<TopicNarrationStyle>([
@@ -81,12 +83,18 @@ export async function POST(req: NextRequest) {
     projectId = created.id;
   }
 
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+  const projectDirection = [compileCreativePrompt(sanitizeCreativeIntent(project?.creativeIntent)).prompt,
+    projectVisualDirection({ visualBible: sanitizeVisualBible(project?.visualBible) }, "zh")].filter(Boolean).join("\n");
+
   // generate scripts
   let generated;
   try {
     generated = await generateTopicScript({
       topic,
       narrationStyle,
+      projectDirection,
+      customRequirements: typeof body.customRequirements === "string" ? body.customRequirements.slice(0, 2000) : undefined,
       targetDuration,
       count,
       platforms,

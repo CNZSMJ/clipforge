@@ -4,7 +4,7 @@ import { updateAiTaskByProviderTaskId } from "@/lib/ai-tasks";
 import { ProviderError } from "@/lib/providers/base";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { scripts } from "@/lib/db/schema";
+import { scripts, projects } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { createProvider } from "@/lib/providers";
 import { toProviderImage } from "@/lib/remote-image";
@@ -15,7 +15,7 @@ import { apiError, errText } from "@/lib/api-error";
  * POST /api/project/[id]/storyboard-grid — one-image consistency anchoring.
  *
  * Renders ALL shots of a script as a single 3x3 storyboard grid (same person /
- * outfit / room / light jointly conditioned in one generation (still requires visual QC)), then
+ * identity and within-scene art direction jointly conditioned; still needs visual QC), then
  * crops each cell into that shot's keyframe asset. The existing per-shot i2v
  * pass ("animate") picks the keyframes up from there. Scripts with more than 9
  * shots are rejected honestly instead of silently truncated.
@@ -55,6 +55,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .from(scripts)
       .where(and(eq(scripts.id, scriptId), eq(scripts.projectId, id)));
     if (!script) return apiError(req, "脚本不存在", "Script not found", 404);
+    const [project] = await db.select().from(projects).where(eq(projects.id, id));
+    const renderContext = { videoMode: project?.videoMode, contentType: project?.contentType,
+      styleType: script.styleType, creativeIntent: project?.creativeIntent, visualBible: project?.visualBible };
     const shots = Array.isArray(script.shots) ? script.shots : [];
     if (shots.length < 2) {
       return apiError(req, "分镜太少，九宫格至少需要 2 个分镜", "Too few shots — the grid needs at least 2", 400);
@@ -76,12 +79,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       (u): u is string => !!u
     );
 
-    // 1) one generation renders every shot — consistency is physical, not prompted;
+    // 1) one generation renders every shot — shared conditioning reduces drift but still requires visual inspection;
     // with references attached the sheet pins the person and the photo pins the product
     const prompt = buildStoryboardGridPrompt(shots, script.characters, {
       characterSheet: !!characterSheetUrl,
       productImage: !!productImageUrl,
-    });
+    }, renderContext);
     const taskMode = storyboardGridMode(scriptId, shots);
     const result = await generateTrackedImage(provider, {
       ...(options ?? {}),

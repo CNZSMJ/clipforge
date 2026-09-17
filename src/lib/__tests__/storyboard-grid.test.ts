@@ -11,15 +11,17 @@ describe("buildStoryboardGridPrompt", () => {
     { id: "char_a", name: "小美", gender: "female", persona: "活泼", appearance: "22 岁高马尾白 T 恤" } as ScriptCharacter,
   ];
 
-  it("全局一致性块 + 人物设定 + 逐格行 + 真实感规则 + 无文字硬约束", () => {
+  it("场景内一致性与原有标识保留，媒介由批准脚本决定", () => {
     const p = buildStoryboardGridPrompt(shots, cast);
-    expect(p).toContain("同一人物、同一发型与同一身衣服、同一房间");
+    expect(p).toContain("同一场景内保持布局");
+    expect(p).toContain("明确换景/换时段时建立新场景");
     expect(p).toContain("小美：22 岁高马尾白 T 恤");
     expect(p).toContain("第 1 格（钩子镜）：女生对镜头惊讶");
     expect(p).toContain("第 3 格（转化镜）：举起产品推荐");
-    expect(p).toContain("不是精修网红脸"); // REAL_FACE 仍然生效
-    expect(p).toContain("光要写满四要素"); // UGC 首帧规则搭车
-    expect(p).toContain("不出现任何文字"); // 裁切后当关键帧，文字会毒化画面
+    expect(p).not.toContain("不是精修网红脸");
+    expect(p).toContain("质感服从已批准脚本的媒介");
+    expect(p).toContain("画面不新增文字");
+    expect(p).toContain("商品原有包装文字与标识按参考保留");
   });
 
   it("超过 9 镜截断到 9 格；无角色时不输出人物设定行", () => {

@@ -2,7 +2,7 @@ import { nearestFalAspectRatio } from "@/lib/providers/fal-video-params";
 import { persistGeneratedFilm } from "@/lib/storyboard-film-persistence";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { scripts, assets } from "@/lib/db/schema";
+import { scripts, assets, projects } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { createProvider } from "@/lib/providers";
 import { ProviderError } from "@/lib/providers/base";
@@ -75,6 +75,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .from(scripts)
       .where(and(eq(scripts.id, scriptId), eq(scripts.projectId, id)));
     if (!script) return apiError(req, "脚本不存在", "Script not found", 404);
+    const [project] = await db.select().from(projects).where(eq(projects.id, id));
+    const renderContext = { videoMode: project?.videoMode, contentType: project?.contentType,
+      styleType: script.styleType, creativeIntent: project?.creativeIntent, visualBible: project?.visualBible };
     const shots = Array.isArray(script.shots) ? script.shots : [];
     if (shots.length < 2) {
       return apiError(req, "分镜太少，一键整片至少需要 2 个分镜", "Too few shots — the film pass needs at least 2", 400);
@@ -103,7 +106,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const fit = filmDurationFit(shots, choice.model);
 
     if (dryRun) {
-      const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) });
+      const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { context: renderContext, seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) });
       const previewOpts = (options ?? {}) as { width?: number; height?: number };
       const estimate = estimateFilmSpend(await unitPriceUsd(), fit.seconds, previewOpts);
       // planned reference count: one keyframe per shot (+ the identity sheet when present) —
@@ -205,7 +208,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       (u): u is string => !!u
     );
 
-    const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) });
+    const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { context: renderContext, seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) });
     const duration = fit.seconds;
     // lip-sync guardrail (advisory, never blocks): overstuffed lines drift out of sync near the
     // end of a segment — surfaced so the UI/CLI can suggest trimming before the paid generation

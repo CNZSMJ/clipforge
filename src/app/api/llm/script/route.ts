@@ -11,6 +11,8 @@ import { scripts as scriptsTable, projects, publishMetrics } from "@/lib/db/sche
 import { eq } from "drizzle-orm";
 import { apiError, errText } from "@/lib/api-error";
 import { llmErrorPair } from "@/lib/llm-error";
+import { compileCreativePrompt, sanitizeCreativeIntent, sanitizeVisualBible } from "@/lib/production-system";
+import { projectVisualDirection } from "@/lib/storyboard-render-direction";
 import { topConvertingStyle, topConvertingHook, buildPerformanceHint, type MetricInput } from "@/lib/performance-insights";
 
 /** Allowed enum values for the styleType column in the scripts table */
@@ -157,6 +159,15 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Read project constraints and reject the wrong content route BEFORE any paid analysis.
+    const projectId = typeof body.projectId === "string" ? body.projectId : "";
+    const [project] = projectId ? await getDb().select().from(projects).where(eq(projects.id, projectId)) : [];
+    if (projectId && !project) return apiError(req, "项目不存在", "Project not found", 404);
+    if (project?.contentType === "topic") return apiError(req, "该项目是一句话主题项目，请勿用带货脚本覆盖", "Use the topic script route for this project", 409);
+    const projectDirection = project ? [
+      compileCreativePrompt(sanitizeCreativeIntent(project.creativeIntent)).prompt,
+      projectVisualDirection({ visualBible: sanitizeVisualBible(project.visualBible) }, "zh"),
+    ].filter(Boolean).join("\n") : undefined;
     // Product image analysis: convert local paths to base64 before passing to the vision model
     let analysis = body.productAnalysis;
     if (!analysis && productImages?.length > 0 && llmConfig) {
@@ -187,7 +198,8 @@ export async function POST(req: NextRequest) {
       productAnalysis: analysis,
       styleType,
       targetDuration: duration,
-      videoMode: body.videoMode,
+      videoMode: body.videoMode ?? project?.videoMode,
+      projectDirection,
       priceRange: body.priceRange,
       platforms: body.platforms,
       usageAdvantage: body.usageAdvantage,
@@ -207,20 +219,8 @@ export async function POST(req: NextRequest) {
 
     // Persist: write generated scripts to the scripts table so the script/assets pages can read them by projectId
     let savedScripts = scripts;
-    const projectId = body.projectId;
     if (projectId) {
       const db = getDb();
-      // Refuse to overwrite a one-liner topic project with a commerce script (contentType mismatch — would delete its topic scripts)
-      const proj = await db
-        .select({ contentType: projects.contentType })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (proj.length > 0 && proj[0].contentType === "topic") {
-        return NextResponse.json(
-          { error: errText(req, "该项目是一句话主题项目，请勿用带货脚本覆盖", "This project is a one-sentence topic project — do not overwrite it with a commerce script"), projectId },
-          { status: 409 }
-        );
-      }
       try {
         // Delete existing scripts for this project first (overwrite on regenerate)
         await db.delete(scriptsTable).where(eq(scriptsTable.projectId, projectId));

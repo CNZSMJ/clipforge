@@ -25,6 +25,8 @@
  * Pure functions: prompt building + response parsing/clamping. The route does I/O.
  */
 import { SPOKEN_VOICE_RULES } from "@/lib/presenters";
+import { COMMERCE_DIRECTION, TOPIC_DIRECTION } from "@/lib/script-engine/storyboard-direction";
+import { sequenceContinuity, renderModeDirection, projectVisualDirection, type StoryboardRenderContext } from "@/lib/storyboard-render-direction";
 import { extractJSON } from "@/lib/script-engine/generator";
 
 export const JUDGE_IDS = ["pace", "voice", "idea", "structure", "visual"] as const;
@@ -78,32 +80,16 @@ export interface JudgeShotInput {
   voiceover: string;
   /** Shot visual description — feeds the visual judge; optional for line-only callers */
   description?: string;
+  duration?: number;
+  camera?: string;
+  characterId?: string;
+  speakerVisible?: boolean;
 }
 
 /** True when the text contains CJK characters (rewrite-language pick). */
 function hasCjk(s: string): boolean {
   return /[一-鿿぀-ヿ가-힯]/.test(s);
 }
-
-/** Style-specific extra criteria appended per script style (keyed by styleType). */
-const STYLE_CRITERIA: Record<string, string> = {
-  reversal: [
-    `反转专项判准（结构官加审）：`,
-    `- 反转必须能填进一句话公式：「因为<铺垫过的事实>，原以为<原认知>不成立，被打脸的细节是<具体可感知点>」——填不进=反转不成立，invariant 级点名`,
-    `- 揭示必须来自前面铺垫过的事实，凭空冒出的新信息不算反转`,
-  ].join("\n"),
-  drama: [
-    `对话剧专项判准（口语官与结构官加审）：`,
-    `- 每句台词必须能标出一个行动动词（怼/试探/炫耀/服软）——标不出行动的台词是解说词，不是对话`,
-    `- 交换说话者测试：把这句台词换给对方说也毫无违和=这句没有立场，点名重写`,
-    `- 每个角色要有自己的一条隐含议程（想赢什么），台词服务不了任何人议程的，点名`,
-  ].join("\n"),
-  interview: [
-    `采访专项判准（口语官与结构官加审）：`,
-    `- 受访者每句话必须能标出行动动词（质疑/惊讶/求证/转粉），纯配合式捧哏台词点名`,
-    `- 交换说话者测试：主持人和受访者的台词互换后不违和=两人没有各自立场，点名重写`,
-  ].join("\n"),
-};
 
 /**
  * Build the single-call judge-panel prompt. All five judges rule in one
@@ -112,37 +98,47 @@ const STYLE_CRITERIA: Record<string, string> = {
  */
 export function buildJudgePrompt(
   shots: JudgeShotInput[],
-  opts: { styleLabel?: string; styleType?: string } = {}
+  opts: StoryboardRenderContext & { styleLabel?: string; narrationStyle?: keyof typeof TOPIC_DIRECTION } = {}
 ): string {
   const lines = shots.map((s) => {
     const desc = (s.description ?? "").trim();
+    const meta = [s.duration ? `${s.duration}s` : "", s.camera, s.characterId ? `voice=${s.characterId}` : "", s.speakerVisible === false ? "offscreen" : s.speakerVisible === true ? "speaker-visible" : ""].filter(Boolean).join(" / ");
+    const suffix = meta ? `｜${meta}` : "";
     return desc
-      ? `- shotId ${s.shotId}：台词「${s.voiceover}」｜画面「${desc}」`
-      : `- shotId ${s.shotId}：「${s.voiceover}」`;
+      ? `- shotId ${s.shotId}：台词「${s.voiceover}」｜画面「${desc}」${suffix}`
+      : `- shotId ${s.shotId}：「${s.voiceover}」${suffix}`;
   });
   const english = shots.length > 0 && shots.every((s) => !hasCjk(`${s.voiceover}${s.description ?? ""}`));
-  const styleExtra = opts.styleType ? STYLE_CRITERIA[opts.styleType] : undefined;
+  const styleExtra = opts.contentType === "topic"
+    ? (opts.narrationStyle ? TOPIC_DIRECTION[opts.narrationStyle] : "主题内容专项：根据脚本目的检查解释是否清楚、故事因果、过程可用或地点可信；不要求所有类型都有反转、推销或金句。")
+    : COMMERCE_DIRECTION[opts.styleType as keyof typeof COMMERCE_DIRECTION];
   return [
-    `你是一支短视频「判官团」，由五位只管一件事、脾气很差的审稿人组成。任务：把下面这条${opts.styleLabel ? `（${opts.styleLabel}风格）` : ""}视频的逐镜台词与画面撕碎，再给出重写。`,
+    `你是一支短视频「判官团」，由五位分工明确、依据具体证据的审稿人组成。任务：检查下面这条${opts.styleLabel ? `（${opts.styleLabel}风格）` : ""}视频的逐镜台词与画面，只修实际问题，保护已成立的创意。`,
     ``,
-    `五位判官（每位只从自己的角度挑刺，宁狠勿宽）：`,
-    `1. 节奏官（pace）：只管留人。第一句钩不住人=死刑；每句必须让人想听下一句；信息密度低、又长又绕的句子全部点名。`,
+    `五位判官（每位只从自己的角度检查，允许没有问题）：`,
+    `1. 节奏官（pace）：检查首镜是否建立观看理由、主承诺是否兑现、台词是否适配实际时长；允许无声镜头、结果停留和情绪呼吸，不要求句句重新制造悬念。`,
     `2. 口语官（voice）：只管「说的不是写的」。判准如下（铁律）：`,
-    SPOKEN_VOICE_RULES,
-    `3. 创意官（idea）：只管新鲜感。套路化开头、用烂的梗、任何同类视频都会说的通用表达，全部点名。`,
-    `4. 结构官（structure）：只管递进与收束。铺垫→递进→收束是否成立；结尾落金句/讲道理=违规；行动号召口号化=违规；全片超过 20 秒却没有一句中段续命钩（约 40%–60% 进度处重新开悬念的句子）=点名。另加两条全局检查：`,
-    `   - 信息密度均匀=没有一镜是事件：逐镜信息量完全平均说明全片没有高潮，点名密度最低的镜让它让位`,
+    opts.contentType === "topic"
+      ? "主题旁白按所选体裁检查可听性：知识解释清楚、故事声音连贯；允许已铺垫的诗性/抒情短句，不把商业口播的语气当所有类型的铁律。"
+      : SPOKEN_VOICE_RULES,
+    `3. 创意官（idea）：只管新鲜感。检查观察视角、揭示顺序、声画关系或视觉回声是否针对本素材；只换同义词不算新意，创意不等于更夸张。不同的合理风格不要判错。`,
+    `4. 结构官（structure）：检查该类型的因果链、证据链或空间/情绪进展与结尾回扣。主题视频不要求商业转化；已经铺垫的短句收尾允许，不能因未制造中段悬念就判硬伤。另加两条全局检查：`,
+    `   - 信息密度均匀不必然是错误：检查是否缺少关键结果/变化，停留镜有观看价值就保留`,
     `   - 「不成立的钩子替代品」负例清单：无来源的新悬念（前文没铺垫突然抛问题）、藏结果式吊胃口（黑屏/"结果你们猜"却不兑现）、把同一句威胁复读得更大声——这三种都不算钩子，点名`,
     `5. 画面官（visual）：只管「这一秒画面里谁做了什么」。判准：`,
-    `   - description 必须是可见事实：谁（角色名/手部）+ 做什么动作 + 对什么对象；镜头拍不出来的写法都点名`,
+    `   - description 必须是可见事实：主体/物件 + 起始状态 + 一个主动作/静置细节 + 结束状态；无需出现人或手，静物微距也可成立`,
     `   - 功能句不是画面：「展示产品效果」「建立信任感」「体现品质」这类目的描述=没写画面，invariant 级点名并给出可见动作重写（写进 descriptionRewrites）`,
     `   - 重写保持原镜意图与场景，只把"目的"翻译成"动作"，长度与原句相当`,
-    styleExtra ?? "",
+    styleExtra ? `类型专项（遵守人物/素材限制，不盲套结构）：\n${styleExtra}` : "",
+    sequenceContinuity("zh"),
+    renderModeDirection(opts, "zh"),
+    projectVisualDirection(opts, "zh"),
+    "连续性加审：服装/商品标识、屏幕方向、开合与持物状态、场景切换、声音归属是否冲突；描述重写不能更换身份、媒介、色板、动作结果或预埋线索。无法在单镜安全修正的跨镜矛盾标 taste 并说明整组建议，不局部自动破坏其他镜头。",
     ``,
     `证据规则（对所有判官生效）：每条 issue 必须包含两个要素——①用「」引出原句/原描述里出问题的片段；②一句话说清什么没有成立。没有引文的挑刺视为无效。`,
     ``,
     `采纳分级（每条 issue 与每条重写都必须标 tier）：`,
-    `- invariant：硬伤，不改必翻车（事实/合规风险、第一句钩不住、功能句无画面、台词密到口型对不上）`,
+    `- invariant：硬伤，不改必翻车（明确的事实矛盾、功能句无画面、时长不可行或状态穿帮；不能将主观的“不够抓人”判成硬伤）`,
     `- default：默认应改（口语铁律违规、套路化表达、结构断裂）`,
     `- taste：品味之争（换个说法也成立）——只提出，不强求；自动化流程不会采纳 taste 级重写`,
     ``,
@@ -153,9 +149,10 @@ export function buildJudgePrompt(
     `{"verdicts":[{"judge":"pace","issues":[{"shotId":1,"issue":"「原句片段」——什么没有成立","tier":"default"}]},{"judge":"voice","issues":[]},{"judge":"idea","issues":[]},{"judge":"structure","issues":[]},{"judge":"visual","issues":[]}],"rewrites":[{"shotId":1,"voiceover":"重写后的台词","tier":"default"}],"descriptionRewrites":[{"shotId":2,"description":"重写后的画面描述（可见动作）","tier":"invariant"}],"summary":"一句话总评"}`,
     ``,
     `重写规则：`,
-    `- 保留原意、卖点与所有事实性说法，只改「怎么说」；不新增任何功效/价格承诺（广告合规红线）`,
+    `- 保留已确认原意与事实，只改「怎么说」；不新增任何功效/价格承诺；未获证实的事实只标注待核实，不以另一条编造的事实替换（广告合规红线）`,
     `- 重写句必须原样保留原句里出现的所有数字、价格与规格（服务端会逐个校验数字 token，丢一个整条弃用）`,
     `- 重写后的台词必须像「说出来的」，且长度与原句相当（字数差控制在 ±20%，配音时长钉死在分镜槽里）`,
+    `- 空 voiceover 表示有意无声，不填入新旁白；保留关键视觉线索、左右关系、动作起止与人物锚，不能为了新鲜感偷换创意`,
     `- 没毛病的镜头不要出现在 rewrites/descriptionRewrites 里；判官没意见就各自给空 issues`,
     english ? `- All issues and rewrites in English (the script is English).` : ``,
   ]
@@ -220,6 +217,8 @@ function clampTextRewrites<T>(
     if (typeof shotId !== "number" || !originals.has(shotId) || !text || seen.has(shotId)) continue;
     const original = originals.get(shotId) ?? "";
     const origLen = original.trim().length;
+    // Silence is intentional timing, not an empty writing slot for the judge to fill.
+    if (field === "voiceover" && origLen === 0) continue;
     if (origLen > 0) {
       // 0.4x–2.5x: beyond that the TTS timing breaks (voiceover) or the shot got re-imagined
       const ratio = text.length / origLen;

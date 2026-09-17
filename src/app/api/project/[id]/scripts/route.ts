@@ -46,7 +46,8 @@ const CAMERA_MAX_LEN = 200;
  * PATCH — two operations for the script page:
  * 1. { selectedScriptId } — switch the active variant (downstream steps read `selected` from the DB).
  * 2. { scriptId, shotTexts: [{shotId, voiceover?, description?, camera?}] } — edit shot copy in place.
- *    Only text fields are merged; shot structure, order, durations and visual fields are untouched
+ *    Only text fields are merged; a changed description invalidates its derived image prompt.
+ *    Shot structure, order, durations and other visual fields are untouched
  *    (durations are planning estimates and the final cut snaps to real TTS length anyway).
  */
 export async function PATCH(
@@ -76,7 +77,8 @@ export async function PATCH(
         return {
           ...shot,
           ...(typeof p.voiceover === "string" && { voiceover: p.voiceover.trim() }),
-          ...(typeof p.description === "string" && { description: p.description.trim() }),
+          ...(typeof p.description === "string" && { description: p.description.trim(),
+            ...(p.description.trim() !== shot.description && { prompt: undefined }) }),
           ...(typeof p.camera === "string" && { camera: p.camera.trim().slice(0, CAMERA_MAX_LEN) }),
         };
       });

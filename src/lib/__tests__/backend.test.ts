@@ -46,7 +46,7 @@ describe("buildUserPrompt", () => {
     expect(prompt).toContain("TikTok Shop");
     expect(prompt).toContain("三段式");
     expect(prompt).toContain("四范式");
-    expect(prompt).toContain("橱窗");
+    expect(prompt).toContain("入口仅在实际配置时提及");
     // non-tiktok platforms should not include the TikTok Shop four-pattern block
     expect(buildUserPrompt({ ...baseInput, platforms: "douyin" })).not.toContain("四范式");
   });

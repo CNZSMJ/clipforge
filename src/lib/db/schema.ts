@@ -412,8 +412,11 @@ export interface Shot {
   prompt?: string; // AI image/video generation prompt
   /** English stock-footage keywords for this shot (1-3), used to auto-match footage from free libraries (key for topic-based videos without a product) */
   stockKeywords?: string[];
-  /** On-screen character ID, references the characters table (optional) */
+  /** Voice identity, references the script cast or characters table (optional). */
   characterId?: string;
+  /** Whether that speaking character is visible in this shot; false means voiceover.
+   * Stored inside existing shots JSON (no SQL migration); omitted on legacy scripts. */
+  speakerVisible?: boolean;
   /** Motion effect, only used for the product_image type */
   motion?: "zoom_in_slow" | "pan_left" | "pan_right" | "ken_burns" | "static";
   /** Text overlay (graphic montage mode) */

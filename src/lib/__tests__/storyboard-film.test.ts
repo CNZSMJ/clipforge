@@ -79,16 +79,20 @@ describe("中文整片 prompt", () => {
     expect(prompt).toContain("素材对应：@图片1 至 @图片3 依次为镜头1至镜头3的关键帧");
   });
 
-  it("质感行默认带真实手机直出（全正向措辞）；realism:false 时不出现", () => {
-    expect(prompt).toContain("真实手机直出质感");
-    expect(prompt).toContain("保留毛孔细节");
+  it("手机真实感改为显式开启，默认与false均服从已批准媒介", () => {
+    expect(prompt).not.toContain("真实手机直出质感");
+    const raw = buildStoryboardFilmPrompt(zhShots, undefined, undefined, { realism: true });
+    expect(raw).toContain("真实手机直出质感");
+    expect(raw).toContain("保留毛孔细节");
     const styled = buildStoryboardFilmPrompt(zhShots, undefined, undefined, { realism: false });
     expect(styled).not.toContain("真实手机直出质感");
   });
 
-  it("唯一具名角色时台词归属到角色名", () => {
+  it("只有角色表但没有逐镜声音归属时，不擅自加对镜口播", () => {
     const withCast = buildStoryboardFilmPrompt(zhShots, [{ name: "小夏", appearance: "邻家" } as never]);
-    expect(withCast).toContain("小夏对着镜头自然说话");
+    expect(withCast).toContain("小夏（邻家）");
+    expect(withCast).not.toContain("小夏对着镜头自然说话");
+    expect(withCast).toContain("画外配音，不添加说话人物或口型");
   });
 
   it("脚本里的运镜逐段带进整片（有才带，空 camera 不出现残段）", () => {
@@ -211,12 +215,11 @@ describe("多角色说话人归属与参考绑定纪律", () => {
     expect(p).toContain("不得把定妆照的浅灰影棚背景、四格分格或边框带进任何镜头画面");
   });
 
-  it("单角色不回归：仍走 soloName 说话行，台词行不加归属短锚", () => {
+  it("单角色也使用逐镜说话者归属，不全局强制对镜口播", () => {
     const solo: ScriptCharacter[] = [{ id: "char_a", name: "小美", gender: "female", persona: "", appearance: "32岁低马尾" }];
     const p = buildStoryboardFilmPrompt(shots.slice(0, 1), solo);
-    expect(p).toContain("小美对着镜头自然说话");
-    expect(p).toContain("台词（逐字说出）：{你这纸巾一擦就破？}");
-    expect(p).not.toContain("由小美");
+    expect(p).not.toContain("小美对着镜头自然说话");
+    expect(p).toContain("台词（逐字说出，由小美（32岁低马尾）说出）：{你这纸巾一擦就破？}");
     // 单角色也有人物设定块（外观锚仍有跨镜价值）
     expect(p).toContain("人物设定（下文提到角色一律用角色名指代");
   });
@@ -239,7 +242,7 @@ describe("多角色说话人归属与参考绑定纪律", () => {
     const p = buildStoryboardFilmPrompt(enShots, enCast);
     expect(p).toContain("Cast (refer to characters strictly by these names");
     expect(p).toContain("spoken verbatim by Mia (early 30s");
-    expect(p).toContain("the character named on that shot speaks the line verbatim");
+    expect(p).toContain("Only a speaker explicitly visible");
   });
 });
 

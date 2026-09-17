@@ -1,11 +1,8 @@
 /**
  * 3x3 storyboard grid — single-image consistency anchoring for multi-shot videos.
  *
- * Why: chained keyframes and text appearance anchors fight identity drift shot by
- * shot; a storyboard GRID kills it at the source — one generation renders all
- * shots in one image, so the person, outfit, room and light are physically the
- * same pixels-era subject in every cell. Each cell is then cropped out and saved
- * as that shot's keyframe, and the existing i2v pass animates them.
+ * Shared reference conditioning reduces drift; it is not a guarantee of identical pixels.
+ * Each cell remains the approved shot's starting state, including intentional scene changes.
  *
  * Geometry trick: a 3x3 grid at 9:16 overall yields cells that are each exactly
  * 9:16 — the cropped cells drop straight into our vertical pipeline.
@@ -13,7 +10,7 @@
  * Pure functions (prompt building + crop geometry); the route does the I/O.
  */
 import type { Shot, ScriptCharacter } from "@/lib/db/schema";
-import { REAL_FACE_CONSTRAINT, UGC_FIRST_FRAME_RULES } from "@/lib/presenters";
+import { sequenceContinuity, renderModeDirection, projectVisualDirection, type StoryboardRenderContext } from "@/lib/storyboard-render-direction";
 
 export const GRID_ROWS = 3;
 export const GRID_COLS = 3;
@@ -38,17 +35,19 @@ const SHOT_TYPE_LABELS: Record<string, string> = {
 export function buildStoryboardGridPrompt(
   shots: Shot[],
   characters?: ScriptCharacter[] | null,
-  refs?: { characterSheet?: boolean; productImage?: boolean }
+  refs?: { characterSheet?: boolean; productImage?: boolean },
+  context?: StoryboardRenderContext,
 ): string {
   const cells = shots.slice(0, GRID_MAX_SHOTS);
   const cast = (characters ?? [])
-    .map((c) => `${c.name}：${c.appearance}`)
+    .filter((c) => c.name?.trim())
+    .map((c) => `${c.name}：${c.appearance ?? ""}`)
     .filter(Boolean)
     .join("；");
 
   const cellLines = cells.map((s, i) => {
     const label = SHOT_TYPE_LABELS[String(s.type)] ?? "分镜";
-    return `第 ${i + 1} 格（${label}）：${s.description}`;
+    return `第 ${i + 1} 格（${label}）：${s.description}${s.camera ? `；景别与机位：${s.camera}（仅画初始定格，不把运镜轨迹画进画面）` : ""}${s.prompt ? `；已批准首帧描述：${s.prompt}` : ""}${s.speakerVisible === false ? "；该镜配音在画外，不新增说话人物或口型" : ""}`;
   });
 
   // reference-image contract: the images array order is [character sheet?, product photo?],
@@ -70,14 +69,16 @@ export function buildStoryboardGridPrompt(
 
   return [
     `一张 ${GRID_ROWS}x${GRID_COLS} 等分九宫格分镜图，整图 9:16 竖版，格与格之间只留极细的白色分隔缝。`,
-    `全局一致性（最重要）：九格是同一支视频的分镜——同一人物、同一发型与同一身衣服、同一房间、同一光线方向与色调，道具与商品在各格间保持完全一致。`,
+    sequenceContinuity("zh"),
+    renderModeDirection(context, "zh"),
+    projectVisualDirection(context, "zh"),
     ...refLines,
     cast ? `人物设定：${cast}。` : "",
     `各格内容（每格是一个独立镜头的画面，构图按竖屏 9:16 设计；每格都是该镜动作即将开始前一瞬的定格，姿态里留着正要发生的势能）：`,
     ...cellLines,
-    REAL_FACE_CONSTRAINT.zh + "。",
-    UGC_FIRST_FRAME_RULES,
-    `硬性要求：严格等分九宫格；画面里不出现任何文字、字幕、编号、水印或边框装饰；每格都是完整可独立使用的镜头画面。`,
+    `质感服从已批准脚本的媒介、主色、材质与光源，不自动改成手机UGC、真人摄影或重金属风。每格仅一个时刻，起始状态与后续主动作相容，不能把动作结束状态提前画入首帧。`,
+    cells.length < GRID_MAX_SHOTS ? `只讲前 ${cells.length} 格的故事；剩余格重复最后一格的中性环境，不增加角色、事件或文字，裁切流程不会使用它们。` : "",
+    `硬性要求：严格等分九宫格；画面不新增文字、字幕、编号、水印或边框装饰；商品原有包装文字与标识按参考保留；每格都是完整可独立使用的镜头画面。`,
   ]
     .filter(Boolean)
     .join("\n");

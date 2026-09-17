@@ -14,9 +14,10 @@ export interface AssetItem {
   prompt: string;
   /** Script camera movement description — feeds the i2v motion prompt (see motion-prompt.ts) */
   camera?: string;
-  /** Speaking cast character bound to this shot (dialogue styles) — triggers the real-face constraint */
+  /** Voice identity; not sufficient to imply that a person is on camera. */
   characterId?: string;
-  /** The shot's voiceover line — with characterId present it marks a talking shot for the i2v motion prompt */
+  speakerVisible?: boolean;
+  /** Narration/dialogue line; speakerVisible distinguishes voiceover from on-camera speech. */
   voiceover?: string;
   visualSource: Shot["visualSource"];
   status: "pending" | "generating" | "done" | "failed";
@@ -102,6 +103,7 @@ export function buildAssetRows(
         prompt: s.prompt ?? "",
         camera: s.camera || undefined,
         characterId: s.characterId || undefined,
+        ...(typeof s.speakerVisible === "boolean" && { speakerVisible: s.speakerVisible }),
         voiceover: s.voiceover || undefined,
         visualSource: s.visualSource,
         status: "done" as const,
@@ -122,6 +124,7 @@ export function buildAssetRows(
       prompt: s.prompt ?? "",
       camera: s.camera || undefined,
       characterId: s.characterId || undefined,
+      ...(typeof s.speakerVisible === "boolean" && { speakerVisible: s.speakerVisible }),
       voiceover: s.voiceover || undefined,
       visualSource: s.visualSource,
       status: s.visualSource === "product_image" ? "done" : saved?.status === "failed" || saved?.status === "generating" ? saved.status : "pending",

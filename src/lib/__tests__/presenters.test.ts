@@ -35,18 +35,21 @@ describe("内置主播库与真实人脸约束", () => {
 });
 
 describe("真实人脸约束的注入链路", () => {
-  it("motion prompt：personShot=true 注入约束（中英），false 不注入", () => {
+  it("缺省表演可用既有人脸约束，但明确脚本不自动改变媒介", () => {
     const zh = buildMotionPrompt({ shotType: "hook", description: "女生对镜头说话", personShot: true });
-    expect(zh).toContain("网红脸");
+    expect(zh).not.toContain("网红脸");
+    expect(buildMotionPrompt({ personShot: true })).toContain("网红脸");
     const en = buildMotionPrompt({ shotType: "hook", description: "a woman talks to camera", personShot: true });
-    expect(en).toContain("influencer");
+    expect(en).not.toContain("influencer");
+    expect(buildMotionPrompt({ camera: "static", personShot: true })).toContain("influencer");
     expect(buildMotionPrompt({ shotType: "hook", description: "女生对镜头说话" })).not.toContain("网红脸");
   });
 
-  it("对话/口播风格公式都带素人要求与内置主播库", () => {
+  it("对白风格定义独立声音角色并遵守模式，不强制同一种素人媒介", () => {
     for (const s of ["drama", "interview", "talking_head"] as const) {
-      expect(stylePrompts[s], s).toContain("素人");
-      expect(stylePrompts[s], s).toContain("内置素人主播库");
+      expect(stylePrompts[s], s).toContain("characterId");
+      expect(stylePrompts[s], s).toContain("画外");
+      expect(stylePrompts[s], s).not.toContain("内置素人主播库");
     }
   });
 
@@ -75,10 +78,11 @@ describe("真实人脸约束的注入链路", () => {
     expect(UGC_FIRST_FRAME_RULES).not.toContain("眼袋");
   });
 
-  it("presenterPromptBlock 捎带两组规则 → drama/interview/talking_head 三风格自动生效", () => {
+  it("主播规则保留为工具，风格不会无条件注入皮肤与手机首帧要求", () => {
     for (const s of ["drama", "interview", "talking_head"] as const) {
-      expect(stylePrompts[s], s).toContain("口语真实感");
-      expect(stylePrompts[s], s).toContain("首帧真实感");
+      expect(stylePrompts[s], s).toContain("视觉执行");
+      expect(stylePrompts[s], s).toContain("连续性");
+      expect(stylePrompts[s], s).not.toContain("光要写满四要素");
     }
   });
 });

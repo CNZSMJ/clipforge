@@ -227,6 +227,7 @@ function validateShot(shot: Partial<Shot>, index: number): Shot {
     // Pass through LLM-generated extended fields (video mode) so they are not silently dropped
     ...(stockKeywords?.length && { stockKeywords }),
     ...(shot.characterId && { characterId: shot.characterId }),
+    ...(typeof shot.speakerVisible === "boolean" && { speakerVisible: shot.speakerVisible }),
     ...(validMotions.includes(shot.motion as NonNullable<Shot["motion"]>) && { motion: shot.motion }),
     ...(shot.textOverlay?.text && {
       textOverlay: {

@@ -237,12 +237,12 @@ export function buildHookGuidance(category: ProductCategory, n = 5, pinnedHookId
         `${i + 1}.【${p.name}】${p.arousal === "high" ? "(高唤醒)" : ""}\n` +
         `   · 0–1s 截停：${p.stop}\n` +
         `   · 1–3s 证相关：${p.prove}\n` +
-        `   · 3–7s 接产品：${p.bridge}\n` +
-        `   · 示例：${p.example}` +
+        `   · 3–7s 接产品：${p.bridge}` +
         (p.avoidWhen ? `\n   · 慎用：${p.avoidWhen}` : "")
     )
     .join("\n\n");
   return `【黄金3秒钩子 — 按「三拍结构」设计开场】
+这些是结构候选，不是可直接引用的事实；任何测试、经历、价格或热度都要由输入材料支持。缺少证据或与视频模式冲突时保留观察/提问机制而不用虚构话术。
 钩子不是一句俏皮话，是一个 3 秒留人结构：
   0–1s 截停拇指（强画面/强声音/强问题，绝不放 logo 或空镜开场）
   1–3s 证明相关（让刷到的人立刻觉得「这跟我有关」）
@@ -250,7 +250,7 @@ export function buildHookGuidance(category: ProductCategory, n = 5, pinnedHookId
 
 ${
   pinned
-    ? `本次开场【必须】使用以下钩子机制（反同质化轮换指定，不要换成其它机制）：`
+    ? `本次开场【必须】优先使用以下钩子机制（反同质化轮换指定）；事实不足/模式不兼容时以真实问题替代，不捏造经历：`
     : `为「${categoryNameMap[category] || category}」品类优选以下钩子机制（任选其一；若生成多个脚本，请各用不同机制以便 A/B 对比）：`
 }
 

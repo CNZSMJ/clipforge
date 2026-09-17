@@ -20,6 +20,7 @@
 import type { Shot } from "@/lib/db/schema";
 import { REAL_FACE_CONSTRAINT } from "@/lib/presenters";
 import { emotionActingLine, shotEmotion } from "@/lib/emotion-acting";
+import { renderModeDirection } from "@/lib/storyboard-render-direction";
 import type { ProductCategory } from "@/lib/script-engine/templates";
 
 /** Camera-movement amplitude tier (Kling-style enumerated intensity instead of free text). */
@@ -30,8 +31,13 @@ export interface MotionPromptInput {
   shotType?: Shot["type"] | string;
   /** The script engine's camera movement description (e.g. "特写 + 缓慢推近"); preferred over defaults */
   camera?: string;
-  /** Short scene description used as a semantic anchor (truncated; the first frame already fixes the scene) */
+  /** Approved shot direction; preserve the action and its ending state, not just the first 60 characters */
   description?: string;
+  /** Saved project boundary; voiceover character IDs do not necessarily denote visible humans. */
+  videoMode?: string | null;
+  styleType?: string | null;
+  /** Native dialogue is directed by the control plan; otherwise speech is added in post. */
+  nativeAudio?: boolean;
   /** Apply product-fidelity constraints (product visible in frame — logo/text must not warp) */
   productShot?: boolean;
   /**
@@ -310,8 +316,6 @@ export function hasCameraConflict(camera: string): boolean {
   return STATIC_CAMERA_RE.test(camera) && MOVING_CAMERA_RE.test(camera) && !SEQUENCE_RE.test(camera);
 }
 
-/** Max chars of the scene description kept as a semantic anchor (the first frame already fixes composition). */
-const DESC_ANCHOR_MAX = 60;
 
 /**
  * Build the i2v motion prompt for a shot. The camera line leads (motion is the message),
@@ -319,6 +323,9 @@ const DESC_ANCHOR_MAX = 60;
  * shots, and the stability tail. Language follows the script (camera/description text).
  */
 export function buildMotionPrompt(input: MotionPromptInput): string {
+  if (input.styleType === "product_pov" || ["product_closeup", "graphic_montage", "scene_demo"].includes(input.videoMode ?? "")) {
+    input = { ...input, personShot: false, talking: false };
+  }
   const probe = `${input.camera ?? ""}${input.description ?? ""}`;
   // Empty inputs default to Chinese (domestic-first product)
   const lang: "zh" | "en" = probe && !hasCjk(probe) ? "en" : "zh";
@@ -333,10 +340,18 @@ export function buildMotionPrompt(input: MotionPromptInput): string {
   const realism: MotionRealismTier = input.realism ?? "auto";
   const category = realism === "off" ? undefined : normalizeCategory(input.category);
   // motion-phrase layers (interaction/background/inertia/emotion) only at the full tier
-  const fullRealism = realism === "auto";
+  const anchor = (input.description ?? "").trim();
+  const restrictedPeople = Boolean(input.videoMode && input.videoMode !== "live_presenter") || input.styleType === "product_pov";
+  const fullRealism = realism === "auto" && !anchor && !restrictedPeople;
   // a speaking character overrides the per-type micro-action: the shot must read as
   // "mid-conversation", with two rotating behavior beats against batch-level repetition
-  let action = input.talking
+  let action = anchor
+    ? (lang === "zh"
+      ? "仅执行已批准分镜的主动作与状态进展，首帧固定主体与构图；没有明确主体动作时保持主体静置，仅执行指定运镜"
+      : "Execute only the approved shot action and state progression; the first frame anchors subject and composition. Without an explicit subject action, hold the subject still and use only the specified camera move")
+    : restrictedPeople
+      ? (lang === "zh" ? "保持首帧物品及其状态，仅执行指定运镜，不补充人物或手部动作" : "Hold the first-frame objects and their states; use only the specified camera move, without adding people or hand actions")
+    : input.talking
     ? `${TALKING_ACTION[lang]}${lang === "zh" ? "；" : "; "}${pickBehaviorBeats(seed, lang).join(lang === "zh" ? "、" : ", ")}`
     : (ACTION_DEFAULTS[type] ?? ACTION_FALLBACK)[lang];
   // demonstration shots with a known category get one "action + material reaction" phrase:
@@ -347,7 +362,6 @@ export function buildMotionPrompt(input: MotionPromptInput): string {
   // non-talking person shots get one emotion process phrase (trigger → body-first →
   // restrained face); talking shots already carry their own behavior direction
   const emotion = fullRealism && !input.talking && input.personShot ? shotEmotion(type) : undefined;
-  const anchor = (input.description ?? "").trim().slice(0, DESC_ANCHOR_MAX);
   const intensity = input.intensity && input.intensity !== "normal" ? INTENSITY_LINES[input.intensity][lang] : undefined;
   // one living-background element for shots where a frozen backdrop would betray the render
   const livingBg = fullRealism && (input.personShot || type === "demo") ? pickFrom(LIVING_BG, seed)[lang] : undefined;
@@ -367,10 +381,11 @@ export function buildMotionPrompt(input: MotionPromptInput): string {
     // chained clip: CHAIN_GUIDANCE already demands one continuous move; SINGLE_SHOT's
     // "no scene changes" would contradict the transition into the next keyframe
     parts.push(input.chainToNext ? CHAIN_GUIDANCE.zh : SINGLE_SHOT.zh);
-    if (input.personShot) parts.push(REAL_FACE_CONSTRAINT.zh);
+    if (input.personShot && !anchor) parts.push(REAL_FACE_CONSTRAINT.zh);
     if (input.productShot) parts.push(PRODUCT_CONSTRAINT.zh);
     if (input.productShot && category) parts.push(CATEGORY_CONSTRAINTS[category].zh);
-    parts.push(SOUND_DIRECTION.zh);
+    if (input.videoMode || input.styleType === "product_pov") parts.push(renderModeDirection(input, "zh"));
+    parts.push(input.nativeAudio ? "音效：遵循单独给出的原生声音指令，台词与画内/画外归属严格按分镜，不编造额外对白或音乐" : SOUND_DIRECTION.zh);
     parts.push(QUALITY_TAIL.zh);
     return parts.join("。") + "。";
   }
@@ -384,10 +399,11 @@ export function buildMotionPrompt(input: MotionPromptInput): string {
   if (anchor) parts.push(`Scene: ${anchor}`);
   if (input.look) parts.push(`Lighting: ${input.look.en}`);
   parts.push(input.chainToNext ? CHAIN_GUIDANCE.en : SINGLE_SHOT.en);
-  if (input.personShot) parts.push(REAL_FACE_CONSTRAINT.en);
+  if (input.personShot && !anchor) parts.push(REAL_FACE_CONSTRAINT.en);
   if (input.productShot) parts.push(PRODUCT_CONSTRAINT.en);
   if (input.productShot && category) parts.push(CATEGORY_CONSTRAINTS[category].en);
-  parts.push(SOUND_DIRECTION.en);
+  if (input.videoMode || input.styleType === "product_pov") parts.push(renderModeDirection(input, "en"));
+  parts.push(input.nativeAudio ? "Sound: follow the separately supplied native audio direction and the shot's on/offscreen voice attribution; invent no additional dialogue or music" : SOUND_DIRECTION.en);
   parts.push(QUALITY_TAIL.en);
   return parts.join(". ") + ".";
 }

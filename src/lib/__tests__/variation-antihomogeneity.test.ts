@@ -63,7 +63,8 @@ describe("pinned hook guidance flows into the script prompt", () => {
       styleType: "pain_point",
       preferredHookId: "before_after",
     });
-    expect(prompt).toContain("本次开场【必须】使用以下钩子机制");
+    expect(prompt).toContain("本次开场【必须】优先使用以下钩子机制");
+    expect(prompt).toContain("事实不足/模式不兼容时以真实问题替代");
     expect((prompt.match(/1\.【/g) ?? []).length).toBe(1);
   });
 });

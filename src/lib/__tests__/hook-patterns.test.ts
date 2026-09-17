@@ -84,14 +84,14 @@ describe("buildUserPrompt 目标平台随 platforms 变化（不再硬编码抖�
 
   it("投放 Reels / Shorts 时注入对应平台算法指令", () => {
     const reels = buildUserPrompt({ productName: "serum", category: "beauty", styleType: "scene", platforms: "reels" });
-    expect(reels).toContain("Instagram Reels 算法优化策略");
+    expect(reels).toContain("Instagram Reels：");
     const shorts = buildUserPrompt({ productName: "serum", category: "beauty", styleType: "scene", platforms: "shorts" });
-    expect(shorts).toContain("YouTube Shorts 算法优化策略");
+    expect(shorts).toContain("YouTube Shorts：");
   });
 
   it("投放视频号时注入视频号（微信）算法指令，目标平台标签为视频号", () => {
     const p = buildUserPrompt({ productName: "云柔抽纸", category: "home", styleType: "pain_point", platforms: "shipinhao" });
-    expect(p).toContain("视频号（微信）算法优化策略");
+    expect(p).toContain("视频号（微信）：");
     expect(p).toContain("目标平台：视频号");
   });
 });

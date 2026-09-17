@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { scripts } from "@/lib/db/schema";
+import { scripts, projects } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { buildJudgePrompt, parseJudgeResponse, type JudgeShotInput } from "@/lib/script-judge";
 import { styleNameMap } from "@/lib/script-engine/prompts";
@@ -42,19 +42,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!script) return apiError(req, "脚本不存在", "Script not found", 404);
 
     const shots: JudgeShotInput[] = (Array.isArray(script.shots) ? script.shots : [])
-      .filter((s) => typeof s.voiceover === "string" && s.voiceover.trim())
+      .filter((s) => s.description?.trim() || s.voiceover?.trim())
       // description rides along for the visual judge ("who does what in this second")
       .map((s) => ({
         shotId: s.shotId,
-        voiceover: s.voiceover.trim(),
+        voiceover: s.voiceover?.trim() ?? "",
+        duration: s.duration, camera: s.camera, characterId: s.characterId, speakerVisible: s.speakerVisible,
         ...(typeof s.description === "string" && s.description.trim() && { description: s.description.trim() }),
       }));
     if (shots.length === 0) {
-      return apiError(req, "该脚本没有台词可评审", "This script has no voiceover lines to judge", 400);
+      return apiError(req, "该脚本没有可评审的画面或台词", "This script has no visuals or lines to judge", 400);
     }
 
     const styleLabel = script.styleType ? styleNameMap[script.styleType] : undefined;
-    const prompt = buildJudgePrompt(shots, { styleLabel, styleType: script.styleType ?? undefined });
+    const [project] = await db.select().from(projects).where(eq(projects.id, id));
+    const prompt = buildJudgePrompt(shots, { styleLabel, styleType: script.styleType ?? undefined,
+      videoMode: project?.videoMode, contentType: project?.contentType,
+      creativeIntent: project?.creativeIntent, visualBible: project?.visualBible });
 
     const client = createLLMClient({
       baseUrl: llmConfig.baseUrl ?? "",

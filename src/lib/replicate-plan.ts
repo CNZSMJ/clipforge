@@ -110,13 +110,14 @@ export function replicateReferenceStructure(shots: ReplicateShot[], totalDuratio
  */
 export function buildReplicatePrompt(input: { productName: string; sellingPoints?: string; imageCount: number }): string {
   const parts = [
-    `参考 视频1 的运镜、节奏、景别与转场，复刻一条同样风格的带货短视频`,
+    `仅参考 视频1 的运镜节奏、景别组织与转场逻辑，针对当前商品创作新的观察切口与视觉记忆点；不复制参考片的台词、身份、品牌、数据或具体创意表达`,
     input.imageCount > 0
       ? `把画面中的商品替换为 图1${input.imageCount > 1 ? `~图${input.imageCount}` : ""} 中的「${input.productName}」，商品的外观、包装、颜色、logo 与文字必须与参考图完全一致，不得扭曲变形`
       : `商品为「${input.productName}」`,
   ];
   const points = input.sellingPoints?.trim();
   if (points) parts.push(`商品卖点：${points.slice(0, 100)}`);
+  parts.push("让一个真实用途或可见结构贯穿开场、证明与结果；各镜固定商品外观与场景内光线，动作状态连续，不为模仿参考动作改变商品功能；没有依据的测试结论省略");
   parts.push("无人声说话，自然环境音与动作音效贴合画面");
   return parts.join("。") + "。";
 }

@@ -57,6 +57,8 @@ export function buildTranslatePrompt(voiceovers: string[], targetLang: string): 
   return [
     `Translate the following ${voiceovers.length} short-video narration lines into ${target}.`,
     `Keep each line punchy and natural for spoken voiceover. Do NOT merge or split lines; keep the same order and count.`,
+    `Preserve factual claims, numbers, names and terminology consistently across lines. Keep the setup/payoff relationship, speaker attitude and references to the existing visuals; do not add scenes, marketing claims or a new CTA.`,
+    `An empty input line is intentional silence: return an empty string in that position. Keep similar spoken duration rather than adding explanatory clauses.`,
     `Return ONLY a JSON array of ${voiceovers.length} strings — no numbering, no markdown, no extra text.`,
     "",
     numbered,
@@ -116,9 +118,11 @@ export async function translateVoiceovers(voiceovers: string[], targetLang: stri
  * reuses the same footage and only swaps audio/subtitles.
  */
 export async function translateShots(shots: Shot[], targetLang: string, cfg: DubLLMConfig): Promise<Shot[]> {
+  if (shots.every((s) => !s.voiceover?.trim())) return shots.map((s) => ({ ...s, voiceover: "" }));
   const voiceovers = shots.map((s) => s.voiceover || "");
   const translated = await translateVoiceovers(voiceovers, targetLang, cfg);
   return shots.map((s, i) => {
+    if (!s.voiceover?.trim()) return { ...s, voiceover: "" }; // preserve the visual hold and duration
     const vo = translated[i] || s.voiceover;
     return { ...s, voiceover: vo, duration: estimateDurationSec(vo || s.voiceover || "") };
   });

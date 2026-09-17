@@ -1,3 +1,4 @@
+import { sequenceContinuity, renderModeDirection, projectVisualDirection, isOffscreenNarration, type StoryboardRenderContext } from "@/lib/storyboard-render-direction";
 /**
  * Storyboard film — "grid to full film" (九宫格→一键整片).
  *
@@ -277,11 +278,12 @@ export function buildStoryboardFilmPrompt(
   refs?: { characterSheet?: boolean },
   opts?: {
     /**
-     * Raw phone-shot texture block (default on — the film chain is UGC by design).
+     * Raw phone-shot texture block (opt-in; never override a styled storyboard by default).
      * Pass false when a styled global look drives the visuals instead, so the
      * "ungraded phone footage" wording doesn't fight the styled look.
      */
     realism?: boolean;
+    context?: StoryboardRenderContext;
     aspectRatio?: string;
     seconds?: number;
   }
@@ -289,10 +291,9 @@ export function buildStoryboardFilmPrompt(
   const zh = shots.some((s) => CJK_RE.test(`${s.description ?? ""}${s.voiceover ?? ""}`));
   const total = opts?.seconds ?? filmRequestSeconds(shots);
   const cast = (characters ?? []).filter((c) => (c.name ?? "").trim());
-  // single named character → attribute dialogue to them; otherwise a generic on-camera creator
+  // Single name is used only to label an actual identity reference, not to add a presenter.
   const soloName = cast.length === 1 ? (cast[0].name ?? "").trim() : "";
-  const speaker = soloName || (zh ? "出镜人物" : "the on-camera creator");
-  const multiCast = cast.length > 1;
+  const offscreen = isOffscreenNarration(opts?.context);
   // per-line speaker attribution (multi-character dialogue MUST name its speaker, or the
   // model hands lines to whoever is centered); the anchor stays ONE short clause — full
   // appearance repeated per line dilutes attention (identity lives in the cast block)
@@ -323,22 +324,24 @@ export function buildStoryboardFilmPrompt(
     // spoken aloud", separating them from scene description at the token level (the official
     // guide reserves () for music, <> for sound effects, {} for dialogue, 【】 for captions)
     // multi-character: name the speaker on every line (one short appearance clause as a
-    // disambiguating anchor); solo/no-cast keeps the legacy unattributed wording
-    const speakerOfLine = multiCast && s.characterId ? charById.get(s.characterId) : undefined;
+    // disambiguating anchor); a voice identity does not imply that the speaker is visible
+    const speakerOfLine = s.characterId ? charById.get(s.characterId) : undefined;
     const whoZh = speakerOfLine
       ? `，由${speakerOfLine.name}${shortAnchor(speakerOfLine) ? `（${shortAnchor(speakerOfLine)}）` : ""}说出`
       : "";
     const whoEn = speakerOfLine
       ? ` by ${speakerOfLine.name}${shortAnchor(speakerOfLine) ? ` (${shortAnchor(speakerOfLine)})` : ""}`
       : "";
+    const delivery = line && (!speakerOfLine || offscreen || s.speakerVisible === false)
+      ? (zh ? "画外配音，不添加说话人物或口型。" : "Offscreen voice; do not add a talking person or lip movement. ") : "";
     if (zh) {
       const dialogue = line ? `台词（逐字说出${whoZh}）：{${line}}` : "（无台词，只保留环境音与动作声）";
       const camPart = cam ? `运镜：${cam}。` : "";
-      return `[${fmtSec(start)}-${fmtSec(cursor)}秒] 镜头${i + 1}（${label}，画面以 @图片${imgN} 为基准）：${s.description ?? ""}。${camPart}${dialogue}`;
+      return `[${fmtSec(start)}-${fmtSec(cursor)}秒] 镜头${i + 1}（${label}，画面以 @图片${imgN} 为基准）：${s.description ?? ""}。${camPart}${delivery}${dialogue}`;
     }
     const dialogue = line ? `Dialogue (spoken verbatim${whoEn}): {${line}}` : "(no dialogue — ambient and action sounds only)";
     const camPart = cam ? `Camera: ${cam}. ` : "";
-    return `[${fmtSec(start)}-${fmtSec(cursor)}s] Shot ${i + 1} (${label}, framing follows @Image${imgN}): ${s.description ?? ""}. ${camPart}${dialogue}`;
+    return `[${fmtSec(start)}-${fmtSec(cursor)}s] Shot ${i + 1} (${label}, framing follows @Image${imgN}): ${s.description ?? ""}. ${camPart}${delivery}${dialogue}`;
   });
 
   // material-binding statement (official rule: state the upload-order → role mapping up front —
@@ -356,7 +359,7 @@ export function buildStoryboardFilmPrompt(
   // channel only covers captions/audio — visual negatives are placebos, so "ungraded" is stated
   // as what the image IS, not what to avoid). Skin stays at "natural, pores kept" — no flaw
   // stacking (the two-round A/B lesson: listed blemishes produce off-putting faces).
-  const realism = opts?.realism !== false;
+  const realism = opts?.realism === true; // opt-in only; styled references remain authoritative
   const realismZh = `画质与质感：真实手机直出质感，色彩自然未调色、带混合色温；人物肤质自然真实、保留毛孔细节不磨皮；构图带轻微手持感。`;
   const realismEn = `Texture: raw ungraded phone-footage look with mixed color temperature; natural realistic skin with visible pores, no beauty smoothing; framing carries a slight handheld feel.`;
 
@@ -375,21 +378,21 @@ export function buildStoryboardFilmPrompt(
 
   if (zh) {
     return [
-      `画幅 ${opts?.aspectRatio ?? "9:16"} UGC 手机实拍感带货短视频，总时长约 ${total} 秒，共 ${shots.length} 个镜头，严格按下面的时间段硬切，一次生成整片。`,
+      `画幅 ${opts?.aspectRatio ?? "9:16"} 按已批准分镜风格制作的短视频，总时长约 ${total} 秒，共 ${shots.length} 个镜头，严格按下面的时间段硬切，一次生成整片。`,
       bindingZh,
       castZh,
-      `全局一致性：所有镜头是同一支视频——同一人物、同一发型与同一身衣服、同一场景与光线方向；商品外观在所有镜头中保持完全一致。`,
+      sequenceContinuity("zh"),
+      renderModeDirection(opts?.context, "zh"),
+      projectVisualDirection(opts?.context, "zh"),
       refs?.characterSheet
         ? `@图片1 是${soloName || "出镜人物"}的四视图定妆照——全片人物的脸型、发型、体型与服装必须与其完全一致（定妆照只作人物参考，不作为任何分镜画面）。${sheetStripZh}`
         : "",
-      multiCast
-        ? `有台词的镜头：由该镜标注的角色自然说出台词，原声逐字说出，口型与语速对齐，语气像日常聊天而不是播音腔；无台词的镜头不要出现说话声。`
-        : `有台词的镜头：${speaker}对着镜头自然说话，原声逐字说出该镜台词，口型与语速对齐，语气像日常聊天而不是播音腔；无台词的镜头不要出现说话声。`,
+      `声音归属：有台词时逐字说出；仅在该镜明确显示说话角色且不是画外配音时，由该镜标注的角色自然说出台词并对齐口型。无 characterId 的旁白、主题视频与物品拟人保持画外；无台词的镜头不要出现说话声。`,
       realism ? realismZh : "",
       // caption ban (positive frame line) + the official negative channel, which covers exactly
       // captions and audio: on-screen text is AI video's #1 tell, and bgm belongs to the
       // composer's own mixing stage, not the generation
-      `画面中不出现任何字幕、文字、编号或水印。不要字幕。`,
+      `画面中不出现任何字幕、新增文字、编号或水印，参考中的原有包装标识保留。不要字幕。`,
       `无bgm，只生成台词人声、环境音与动作音。`,
       `分镜（@图片N 是对应镜头的画面基准，人物、场景与构图以其为准）：`,
       ...segments,
@@ -398,20 +401,20 @@ export function buildStoryboardFilmPrompt(
       .join("\n");
   }
   return [
-    `Aspect ratio ${opts?.aspectRatio ?? "9:16"} UGC phone-shot style short video, about ${total} seconds total, ${shots.length} shots with hard cuts exactly at the timecodes below, generated as one continuous film.`,
+    `Aspect ratio ${opts?.aspectRatio ?? "9:16"} short video in the approved storyboard style, about ${total} seconds total, ${shots.length} shots with hard cuts exactly at the timecodes below, generated as one continuous film.`,
     bindingEn,
     castEn,
-    `Global consistency: every shot belongs to the same video — same person, same hair and outfit, same location and light direction; the product looks identical in every shot.`,
+    sequenceContinuity("en"),
+    renderModeDirection(opts?.context, "en"),
+    projectVisualDirection(opts?.context, "en"),
     refs?.characterSheet
       ? `@Image1 is the four-view reference sheet of ${soloName || "the presenter"} — the person's face, hair, build and outfit must match it exactly throughout (identity reference only, never a shot frame). ${sheetStripEn}`
       : "",
     // non-Chinese dialogue needs an explicit language declaration (official 2.5 guidance)
     shots.some((s) => (s.voiceover ?? "").trim()) ? `Dialogue language: English.` : "",
-    multiCast
-      ? `Shots with dialogue: the character named on that shot speaks the line verbatim with matching lip sync, casual everyday tone rather than announcer voice; shots without dialogue must contain no speech.`
-      : `Shots with dialogue: ${speaker} talks to the camera naturally and speaks the lines verbatim with matching lip sync, casual everyday tone rather than announcer voice; shots without dialogue must contain no speech.`,
+    `Voice attribution: speak lines verbatim. Only a speaker explicitly visible in the shot receives lip sync. Unassigned narration, topic narration and product personification stay offscreen; a silent shot has no speech.`,
     realism ? realismEn : "",
-    `No captions, on-screen text, numbers or watermarks anywhere in the frame. No subtitles.`,
+    `No added captions, text, numbers or watermarks. Preserve existing product markings from the references. No subtitles.`,
     `No bgm — only the spoken dialogue, ambient and action sounds.`,
     `Shot list (@ImageN anchors the corresponding shot's framing — person, scene and composition follow it):`,
     ...segments,
