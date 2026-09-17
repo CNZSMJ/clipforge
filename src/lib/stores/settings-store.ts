@@ -1,3 +1,4 @@
+import { isFalOpenRouter } from "@/lib/llm-models";
 import { FAL_IMAGE_SPECS } from "@/lib/providers/fal-image-params";
 import { FAL_VIDEO_SPECS } from "@/lib/providers/fal-video-params";
 import { create } from "zustand";
@@ -164,6 +165,12 @@ export function migrateSettings(state: SettingsState, fromVersion = 0): Settings
   }
   // v7: migrate the old official Fal defaults once, retaining custom choices and keys.
   if (fromVersion < 7 && state.llm) state.llm = upgradeFalQualityDefaults(state.llm);
+  // v8: supersede only the exact v7 quality-first default pair on the official gateway.
+  // A manually selected cheaper 2.5 on v7, or either independent custom model, stays intact.
+  if (fromVersion === 7 && state.llm && isFalOpenRouter(state.llm.baseUrl) &&
+      state.llm.model === "anthropic/claude-fable-5.1" && state.llm.visionModel === "openai/gpt-6-astra") {
+    state.llm = { ...state.llm, model: FAL_ONEKEY_MODELS.llm, visionModel: FAL_ONEKEY_MODELS.vision };
+  }
   const llm = state?.llm;
   if (llm?.baseUrl) {
     const fixes: Array<{ hostRe: RegExp; from: string; to: string }> = [
@@ -201,11 +208,11 @@ export const useSettingsStore = create<SettingsState>()(
         openai: { enabled: false, apiKey: "" },
       },
       llm: {
-        provider: "",
-        baseUrl: "",
+        provider: "fal.ai",
+        baseUrl: FAL_LLM_BASE_URL,
         apiKey: "",
-        model: "",
-        visionModel: "",
+        model: FAL_ONEKEY_MODELS.llm,
+        visionModel: FAL_ONEKEY_MODELS.vision,
       },
       tts: {
         enabled: false,
@@ -271,6 +278,7 @@ export const useSettingsStore = create<SettingsState>()(
             image: state.defaultImageModel,
             video: state.defaultVideoModel,
           });
+          const keepLlm = isFalOpenRouter(state.llm.baseUrl);
           return {
             llm: {
               provider: "fal.ai",
@@ -278,8 +286,8 @@ export const useSettingsStore = create<SettingsState>()(
               // the media queue host (FAL_BASE_URL) answers every chat call with 404.
               baseUrl: FAL_LLM_BASE_URL,
               apiKey: key,
-              model: FAL_ONEKEY_MODELS.llm,
-              visionModel: FAL_ONEKEY_MODELS.vision,
+              model: keepLlm && state.llm.model.trim() ? state.llm.model : FAL_ONEKEY_MODELS.llm,
+              visionModel: keepLlm && (state.llm.model.trim() || state.llm.visionModel?.trim()) ? state.llm.visionModel : FAL_ONEKEY_MODELS.vision,
             },
             providers: {
               ...state.providers,
@@ -305,7 +313,8 @@ export const useSettingsStore = create<SettingsState>()(
       // v3：Ollama 的 localhost:11434 改写成 127.0.0.1:11434（Windows 上 ::1 连不通）。
       // v4：补充面向创作目标的生产方案；旧设置迁移到兼顾质量与成本的 balanced。
       // v6: retire Atlas settings; require a real fal key instead of copying credentials.
-      version: 7,
+      // v8: balanced defaults; preserve keys, custom choices and v7 manual cheap-model selections.
+      version: 8,
       migrate: (persisted, version) => migrateSettings(persisted as SettingsState, version),
     }
   )

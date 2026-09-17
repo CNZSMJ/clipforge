@@ -1,3 +1,4 @@
+import { usesBalancedLlmPolicy } from "@/lib/llm-balanced";
 import { isOpenRouterChatBase, qualityModelFetch } from "@/lib/llm-quality-policy";
 import { llmAuthHeaders } from "@/lib/llm-models";
 /**
@@ -137,6 +138,11 @@ export function tokenCapRetryFetch(
     if (res.ok || (res.status !== 400 && res.status !== 422)) return res;
     const sent = typeof init?.body === "string" ? init.body : undefined;
     if (!sent || !sent.includes('"max_tokens"')) return res;
+    // Never turn this known model's bounded request into an unlimited paid retry.
+    try {
+      const target = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      if (usesBalancedLlmPolicy(target.replace(/\/chat\/completions$/, ""), JSON.parse(sent).model)) return res;
+    } catch { /* leave other models' existing recovery unchanged */ }
 
     const text = await res.text().catch(() => "");
     // Reading the body consumes it, so any path that gives up must hand back an equivalent Response.

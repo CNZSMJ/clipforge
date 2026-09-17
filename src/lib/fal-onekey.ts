@@ -28,10 +28,10 @@ export const FAL_TTS_VOICE = "Wise_Woman";
 export const FAL_KEYS_URL = "https://fal.ai/dashboard/keys";
 
 export const FAL_ONEKEY_MODELS = {
-  /** Quality-first script model. Selection evidence: docs/llm-vision-model-selection.md. */
-  llm: "anthropic/claude-fable-5.1",
-  /** Product/frame understanding and reference-aware visual quality checks (not generation). */
-  vision: "openai/gpt-6-astra",
+  /** Balanced script default. Evidence and price validity: docs/llm-model-selection.md. */
+  llm: "google/gemini-3.8-flash",
+  /** Product/frame understanding and visual QC; low reasoning, not image generation. */
+  vision: "google/gemini-3.8-flash",
   /**
    * Image generation: GPT Image 2.5 Sunburst Edit — the product-photo path feeds references, and
    * the /edit routes are the ones that accept image_urls. Swap to `.../sunburst/text-to-image`

@@ -2,7 +2,10 @@
  * Keep this transport-only: never change prompts, model IDs, credentials or media inputs.
  */
 import { isFalOpenRouter, normalizeChatBase } from "@/lib/llm-models";
-import { FAL_ONEKEY_MODELS } from "@/lib/fal-onekey";
+import { balancedChatFetch } from "@/lib/llm-balanced";
+
+// Keep opt-in premium compatibility independent of the current balanced defaults.
+const PREMIUM_MODELS = new Set(["anthropic/claude-fable-5.1", "openai/gpt-6-astra"]);
 
 export function isOpenRouterChatBase(baseUrl?: string): boolean {
   if (isFalOpenRouter(baseUrl)) return true;
@@ -18,7 +21,7 @@ export function isOpenRouterChatBase(baseUrl?: string): boolean {
 export const QUALITY_COMPLETION_BUDGET = 32_768;
 export const QUALITY_PROBE_BUDGET = 2_048;
 
-export function qualityModelFetch(
+function premiumModelFetch(
   baseUrl: string | undefined,
   baseFetch: typeof fetch = fetch,
   probe = false,
@@ -37,7 +40,7 @@ export function qualityModelFetch(
       body = { ...parsed };
     } catch { return baseFetch(url, init); }
     // Inspect the actual request model: image analysis may differ from config.model.
-    if (body.model !== FAL_ONEKEY_MODELS.llm && body.model !== FAL_ONEKEY_MODELS.vision) {
+    if (typeof body.model !== "string" || !PREMIUM_MODELS.has(body.model)) {
       return baseFetch(url, init);
     }
     // Neither selected model advertises sampling/logprob controls in OpenRouter's catalogue.
@@ -58,4 +61,10 @@ export function qualityModelFetch(
     // No retries here. In particular, never consume/replace successful streaming responses.
     return baseFetch(url, { ...init, body: JSON.stringify(body) });
   };
+}
+
+/** Preserve opt-in premium behavior; the balanced default gets its own bounded policy. */
+export function qualityModelFetch(baseUrl: string | undefined, baseFetch: typeof fetch = fetch, probe = false): typeof fetch {
+  if (!isOpenRouterChatBase(baseUrl)) return baseFetch;
+  return balancedChatFetch(baseUrl, premiumModelFetch(baseUrl, baseFetch, probe), probe);
 }

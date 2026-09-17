@@ -46,7 +46,7 @@ export function balancedChatBody(
 }
 
 /** Only chat POSTs to the exact configured gateway are eligible; never rewrite media/other URLs. */
-export function balancedChatFetch(baseUrl: string | undefined, baseFetch: typeof fetch = fetch): typeof fetch {
+export function balancedChatFetch(baseUrl: string | undefined, baseFetch: typeof fetch = fetch, probe = false): typeof fetch {
   return async (url, init) => {
     const target = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
     if (target !== `${normalizeChatBase(baseUrl || "")}/chat/completions` ||
@@ -57,7 +57,7 @@ export function balancedChatFetch(baseUrl: string | undefined, baseFetch: typeof
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return baseFetch(url, init);
       body = parsed as Record<string, unknown>;
     } catch { return baseFetch(url, init); }
-    const adjusted = balancedChatBody(baseUrl, body);
+    const adjusted = balancedChatBody(baseUrl, body, probe);
     return baseFetch(url, adjusted === body ? init : { ...init, body: JSON.stringify(adjusted) });
   };
 }

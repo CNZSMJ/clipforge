@@ -15,30 +15,30 @@ const fresh = () => JSON.parse(JSON.stringify(useSettingsStore.getInitialState()
 beforeEach(() => { useSettingsStore.setState(useSettingsStore.getInitialState(), true); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
-describe("quality-first model defaults", () => {
+describe("current defaults with preserved premium compatibility", () => {
   it("uses the verified router IDs without changing image/video defaults", () => {
-    expect(FAL_ONEKEY_MODELS).toMatchObject({ llm: FABLE, vision: ASTRA,
+    expect(FAL_ONEKEY_MODELS).toMatchObject({ llm: "google/gemini-3.8-flash", vision: "google/gemini-3.8-flash",
       image: "openai/gpt-image-2.5/sunburst/edit", video: "bytedance/seedance-2.5/image-to-video" });
   });
-  it("one-key setup configures distinct script and vision models", () => {
+  it("one-key setup configures the current script and vision defaults", () => {
     useSettingsStore.getState().applyFalOneKey("TEST-ONLY");
-    expect(useSettingsStore.getState().llm).toMatchObject({ model: FABLE, visionModel: ASTRA, apiKey: "TEST-ONLY", baseUrl: FAL_LLM_BASE_URL });
+    expect(useSettingsStore.getState().llm).toMatchObject({ model: FAL_ONEKEY_MODELS.llm, visionModel: FAL_ONEKEY_MODELS.vision, apiKey: "TEST-ONLY", baseUrl: FAL_LLM_BASE_URL });
   });
   it.each(["fal.ai (OpenRouter)", "OpenRouter"])("%s preset contains the same pair", (label) => {
-    expect(LLM_PRESETS.find(p => p.label === label)).toMatchObject({ model: FABLE, visionModel: ASTRA });
+    expect(LLM_PRESETS.find(p => p.label === label)).toMatchObject({ model: FAL_ONEKEY_MODELS.llm, visionModel: FAL_ONEKEY_MODELS.vision });
   });
   it("the settings button does not overwrite the vision preset with the text model", () => {
     expect(readFileSync("src/app/settings/page.tsx", "utf8")).toContain("visionModel: preset.visionModel ?? preset.model");
   });
   it("migrates the legacy pair without changing credentials", () => {
-    expect(upgradeFalQualityDefaults(old())).toEqual({ ...old(), model: FABLE, visionModel: ASTRA });
+    expect(upgradeFalQualityDefaults(old())).toEqual({ ...old(), model: FAL_ONEKEY_MODELS.llm, visionModel: FAL_ONEKEY_MODELS.vision });
   });
   it("migrates an implicit vision fallback together with the legacy script model", () => {
-    expect(upgradeFalQualityDefaults({ ...old(), visionModel: "" })).toMatchObject({ model: FABLE, visionModel: ASTRA });
+    expect(upgradeFalQualityDefaults({ ...old(), visionModel: "" })).toMatchObject({ model: FAL_ONEKEY_MODELS.llm, visionModel: FAL_ONEKEY_MODELS.vision });
   });
   it("preserves independently selected script and vision models", () => {
-    expect(upgradeFalQualityDefaults({ ...old(), model: "custom-text" })).toMatchObject({ model: "custom-text", visionModel: ASTRA });
-    expect(upgradeFalQualityDefaults({ ...old(), visionModel: "custom-vision" })).toMatchObject({ model: FABLE, visionModel: "custom-vision" });
+    expect(upgradeFalQualityDefaults({ ...old(), model: "custom-text" })).toMatchObject({ model: "custom-text", visionModel: FAL_ONEKEY_MODELS.vision });
+    expect(upgradeFalQualityDefaults({ ...old(), visionModel: "custom-vision" })).toMatchObject({ model: FAL_ONEKEY_MODELS.llm, visionModel: "custom-vision" });
     expect(upgradeFalQualityDefaults({ ...old(), model: "custom-text", visionModel: "" })).toMatchObject({ model: "custom-text", visionModel: "" });
   });
   it.each(["https://proxy.example/v1", "https://fal.run.evil.test/openrouter/router/openai/v1", "https://fal.run:444/openrouter/router/openai/v1", "http://fal.run/openrouter/router/openai/v1", "https://fal.run/openrouter/router/openai/v1?x=1"])("does not migrate noncanonical base %s", (baseUrl) => {
@@ -47,12 +47,12 @@ describe("quality-first model defaults", () => {
   it("v7 migrates persisted settings once and preserves media, narration and spend limits", () => {
     const state = fresh(); state.llm = old(); const before = structuredClone(state);
     const result = migrateSettings(state, 6);
-    expect(result.llm).toMatchObject({ model: FABLE, visionModel: ASTRA });
+    expect(result.llm).toMatchObject({ model: FAL_ONEKEY_MODELS.llm, visionModel: FAL_ONEKEY_MODELS.vision });
     expect(result.tts).toEqual(before.tts); expect(result.defaultImageModel).toBe(before.defaultImageModel);
     expect(result.defaultVideoModel).toBe(before.defaultVideoModel); expect(result.spendCapUsd).toBe(before.spendCapUsd);
     const manuallyReverted = fresh(); manuallyReverted.llm = old();
     expect(migrateSettings(manuallyReverted, 7).llm).toEqual(old());
-    expect(useSettingsStore.persist.getOptions().version).toBe(7);
+    expect(useSettingsStore.persist.getOptions().version).toBe(8);
   });
   it("is idempotent and leaves an empty, unconfigured provider alone", () => {
     const once = upgradeFalQualityDefaults(old()); expect(upgradeFalQualityDefaults(once)).toEqual(once);

@@ -13,7 +13,7 @@ describe("balanced Fal defaults and one-time migration", () => {
       image: "openai/gpt-image-2.5/sunburst/edit", video: "bytedance/seedance-2.5/image-to-video" });
     expect(useSettingsStore.getInitialState().llm).toMatchObject({ model, visionModel: model, apiKey: "", baseUrl: FAL_LLM_BASE_URL });
     expect(LLM_PRESETS.find(p => p.baseUrl === FAL_LLM_BASE_URL)?.model).toBe(model);
-    expect(useSettingsStore.persist.getOptions().version).toBe(7);
+    expect(useSettingsStore.persist.getOptions().version).toBe(8);
   });
   it("upgrades the old official Fal preset while preserving keys and all media choices", () => {
     const state = fresh();
@@ -53,7 +53,7 @@ describe("balanced Fal defaults and one-time migration", () => {
     localStorage.setItem("daihuo-jianshou-settings", JSON.stringify({ state, version: 6 }));
     await useSettingsStore.persist.rehydrate();
     expect(useSettingsStore.getState().llm).toMatchObject({ apiKey: "KEEP", model, visionModel: model });
-    expect(JSON.parse(localStorage.getItem("daihuo-jianshou-settings")!).version).toBe(7);
+    expect(JSON.parse(localStorage.getItem("daihuo-jianshou-settings")!).version).toBe(8);
   });
   it("key rotation keeps custom Fal model selections", () => {
     useSettingsStore.setState({ llm: { provider: "fal.ai", baseUrl: FAL_LLM_BASE_URL, apiKey: "OLD", model: "custom", visionModel: "custom-v" } });
@@ -67,3 +67,21 @@ describe("balanced Fal defaults and one-time migration", () => {
   });
 });
 
+
+describe("cost requirement supersedes the parallel v7 premium default", () => {
+  it("upgrades the exact former premium pair once and preserves its key", () => {
+    const state = fresh();
+    state.llm = { ...state.llm, model: "anthropic/claude-fable-5.1", visionModel: "openai/gpt-6-astra", apiKey: "KEEP" };
+    expect(migrateSettings(state, 7).llm).toMatchObject({ model, visionModel: model, apiKey: "KEEP" });
+  });
+  it("does not replace an independently selected model in a mixed premium/custom pair", () => {
+    const state = fresh();
+    state.llm = { ...state.llm, model: "anthropic/claude-fable-5.1", visionModel: "my-vision" };
+    expect(migrateSettings(state, 7).llm).toMatchObject({ model: "anthropic/claude-fable-5.1", visionModel: "my-vision" });
+  });
+  it("leaves a manually reselected premium pair alone after v8", () => {
+    const state = fresh();
+    state.llm = { ...state.llm, model: "anthropic/claude-fable-5.1", visionModel: "openai/gpt-6-astra" };
+    expect(migrateSettings(state, 8).llm).toMatchObject({ model: "anthropic/claude-fable-5.1", visionModel: "openai/gpt-6-astra" });
+  });
+});

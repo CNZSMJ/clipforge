@@ -18,6 +18,7 @@
  * the probe passes and carries a warning instead of a red cross.
  */
 
+import { usesBalancedLlmPolicy } from "@/lib/llm-balanced";
 import { qualityModelFetch } from "@/lib/llm-quality-policy";
 import { explainLLMStatus, isLegacyPollinations, isTokenCapRejection, type LLMMessagePair } from "@/lib/llm-error";
 import { llmAuthHeaders, listModels, modelListHint, normalizeChatBase } from "@/lib/llm-models";
@@ -98,7 +99,7 @@ export async function probeLLMEndpoint(input: ProbeInput): Promise<ProbeOutcome>
   let { res, text } = await probeCompletion(base, input.apiKey, model, PROBE_MAX_TOKENS, fetchImpl);
 
   // Cap-related 4xx: retry uncapped before believing it.
-  if (!res.ok && (res.status === 400 || res.status === 422) && isTokenCapRejection(text)) {
+  if (!res.ok && !usesBalancedLlmPolicy(base, model) && (res.status === 400 || res.status === 422) && isTokenCapRejection(text)) {
     ({ res, text } = await probeCompletion(base, input.apiKey, model, undefined, fetchImpl));
     if (!res.ok && (res.status === 400 || res.status === 422) && isTokenCapRejection(text)) {
       // Still capped without any cap of ours: the provider ran the model and ran out of its own
