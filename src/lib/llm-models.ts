@@ -29,6 +29,13 @@ export function normalizeChatBase(baseUrl: string): string {
   return normalizeBase(baseUrl);
 }
 
+/** fal's OpenAI-shaped API uses fal credentials, not an OpenAI Bearer key. */
+export function llmAuthHeaders(baseUrl: string | undefined, apiKey: string): Record<string, string> {
+  let fal = false;
+  try { const url = new URL(baseUrl || ""); fal = url.hostname === "fal.run" && url.pathname.startsWith("/openrouter/router/openai/"); } catch { /* custom/default client */ }
+  return { Authorization: `${fal ? "Key" : "Bearer"} ${apiKey}` };
+}
+
 /** True for a local Ollama endpoint — its model ids carry a `:tag` that must be typed in full. */
 export function isOllama(baseUrl?: string): boolean {
   return /:11434(\/|$)|\bollama\b/i.test(baseUrl || "");
@@ -45,7 +52,7 @@ export async function listModels(
 ): Promise<string[]> {
   try {
     const res = await fetchImpl(`${normalizeChatBase(baseUrl)}/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: llmAuthHeaders(baseUrl, apiKey),
       signal: AbortSignal.timeout(MODELS_TIMEOUT_MS),
     });
     if (!res.ok) return [];

@@ -53,12 +53,18 @@ export function PresenterManager() {
     try {
       const target = await resolveDefaultModelTarget(providers, defaultImageModel, customModels, "image");
       if (!target) throw new Error(t("characterSheetNoModel"));
+      const recoveryKey = `clipforge:sheet:${char.id}`;
+      const signature = JSON.stringify([char.name, char.appearance, target.provider, target.model]);
+      let pending: { signature?: string; taskId?: string } = {};
+      try { pending = JSON.parse(localStorage.getItem(recoveryKey) || "{}"); } catch { /* corrupt recovery metadata */ }
+      const taskId = pending.signature === signature ? pending.taskId : undefined;
       const res = await fetch("/api/characters/sheet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           appearance: char.appearance,
           name: char.name,
+          ...(taskId && { taskId }),
           provider: target.provider,
           model: target.model,
           apiKey: target.apiKey,
@@ -68,7 +74,13 @@ export function PresenterManager() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t("characterSheetFailed"));
+      if (!res.ok) {
+        if (data.taskId && data.recoverable) localStorage.setItem(recoveryKey, JSON.stringify({ signature, taskId: data.taskId }));
+        else if (data.recoverable === false) localStorage.removeItem(recoveryKey);
+        throw new Error(data.error || t("characterSheetFailed"));
+      }
+      if (!data.url) throw new Error(t("characterSheetFailed"));
+      localStorage.removeItem(recoveryKey);
       updateCharacter(char.id, { referenceImages: [data.url, ...(char.referenceImages ?? []).slice(1)] });
       setSheetNotice(t("characterSheetDone", { name: char.name }));
     } catch (e) {

@@ -80,7 +80,7 @@ interface PendingAiTask {
   provider: string;
   model: string;
   taskId: string;
-  status: "submitted" | "processing" | "completed" | "failed" | "unknown";
+  status: "submitted" | "processing" | "completed" | "failed" | "unknown" | "download_pending";
   controlPlan?: GenerationControlSummary | null;
 }
 
@@ -437,16 +437,15 @@ export default function AssetsPage() {
           ...(generationPlan && { generationPlan }),
         }),
       });
-      let savedUrl = url;
+      const saved = await saveRes.json();
+      if (!saveRes.ok || !saved.filePath) throw new Error(saved.error || t("taskResumeFailed"));
+      const savedUrl = saved.filePath;
       let savedLastFrame: string | undefined;
-      if (saveRes.ok) {
-        const saved = await saveRes.json();
-        if (saved.filePath) savedUrl = saved.filePath;
-        // the server extracted this clip's REAL last frame — remember it for tail-chaining
-        if (typeof saved.lastFrameUrl === "string") {
-          savedLastFrame = saved.lastFrameUrl;
-          lastFrameByShot.current.set(shotId, saved.lastFrameUrl);
-        }
+      if (typeof saved.lastFrameUrl === "string") {
+        savedLastFrame = saved.lastFrameUrl;
+        lastFrameByShot.current.set(shotId, saved.lastFrameUrl);
+      } else {
+        lastFrameByShot.current.delete(shotId);
       }
       setAssets((prev) =>
         prev.map((a) =>
@@ -457,7 +456,7 @@ export default function AssetsPage() {
                 thumbnailUrl: keyframeUrl ?? savedUrl,
                 isVideo: true,
                 keyframeUrl,
-                lastFrameUrl: savedLastFrame ?? a.lastFrameUrl,
+                lastFrameUrl: savedLastFrame,
                 generationPlan: generationPlan ?? a.generationPlan,
                 error: undefined,
               }
@@ -465,7 +464,7 @@ export default function AssetsPage() {
         )
       );
     },
-    [id]
+    [id, t]
   );
 
   // resume a persisted cloud task: query (and wait for) its status, then save the result
@@ -492,7 +491,19 @@ export default function AssetsPage() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || t("taskResumeFailed"));
-        if (data.status === "completed" && data.videoUrls?.[0]) {
+        if (data.status === "completed" && (data.grid || data.persisted)) {
+          await reloadAssets();
+          setTaskMsg(t("taskResumeDone"));
+        } else if (data.status === "completed" && data.imageUrls?.[0] && task.shotId != null) {
+          const saved = await fetch(`/api/project/${id}/assets`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ shotId: task.shotId, sourceUrl: data.imageUrls[0], provider: task.provider, model: task.model }),
+          });
+          const result = await saved.json();
+          if (!saved.ok) throw new Error(result.error || t("taskResumeFailed"));
+          await reloadAssets();
+          setTaskMsg(t("taskResumeDone"));
+        } else if (data.status === "completed" && data.videoUrls?.[0]) {
           if (task.controlPlan && "kind" in task.controlPlan && task.controlPlan.kind === "repair") {
             const finalizeRes = await fetch(`/api/project/${id}/repair`, {
               method: "POST",
@@ -507,6 +518,8 @@ export default function AssetsPage() {
             // best-effort keyframe provenance: the task was submitted from the shot's static frame
             const keyframe = asset && !asset.isVideo ? asset.thumbnailUrl : asset?.keyframeUrl;
             await saveVideoAsset(task.shotId, data.videoUrls[0], asset?.prompt, task.provider, task.model, keyframe, task.controlPlan);
+          } else if (!data.compositionId) {
+            throw new Error("云端结果已就绪，但尚未保存到项目；请在任务对应的工作台恢复");
           }
           setTaskMsg(t("taskResumeDone"));
         } else if (data.status === "failed" || data.status === "cancelled") {
@@ -780,6 +793,7 @@ export default function AssetsPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            projectId: id, shotId,
             provider: modelTarget.provider,
             model: genModel,
             apiKey: modelTarget.apiKey,
@@ -800,23 +814,14 @@ export default function AssetsPage() {
         const url = data.imageUrls?.[0];
         if (!url) throw new Error(t("errorEmptyResult"));
         // persist to database (remote images will be downloaded locally) so the composer can read the real AI asset
-        let savedUrl = url;
-        try {
-          const saveRes = await fetch(`/api/project/${id}/assets`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              shotId, type: "ai_generate", sourceUrl: url,
-              prompt: genPrompt, provider: modelTarget.provider, model: genModel,
-            }),
-          });
-          if (saveRes.ok) {
-            const saved = await saveRes.json();
-            if (saved.filePath) savedUrl = saved.filePath;
-          }
-        } catch {
-          // persist failure doesn't affect the preview (the composer will fall back to the product image as a safety net)
-        }
+        const saveRes = await fetch(`/api/project/${id}/assets`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shotId, type: "ai_generate", sourceUrl: url,
+            prompt: genPrompt, provider: modelTarget.provider, model: data.modelId || genModel }),
+        });
+        const saved = await saveRes.json();
+        if (!saveRes.ok || !saved.filePath) throw new Error(saved.error || t("taskResumeFailed"));
+        const savedUrl = saved.filePath;
         setAssets((prev) =>
           prev.map((a) => (a.shotId === shotId ? { ...a, status: "done", thumbnailUrl: savedUrl } : a))
         );
@@ -824,6 +829,7 @@ export default function AssetsPage() {
         if (!opts?.skipMotion && autoMotion && videoModelTarget) await generateMotion(shotId, savedUrl);
         return savedUrl;
       } catch (e) {
+        await reloadPendingTasks();
         setAssets((prev) =>
           prev.map((a) =>
             a.shotId === shotId ? { ...a, status: "failed", error: e instanceof Error ? e.message : t("errorGenerateFailed") } : a
@@ -832,7 +838,7 @@ export default function AssetsPage() {
         return undefined;
       }
     },
-    [assets, modelTarget, productImages, productSafe, imageParams, autoMotion, videoModelTarget, projectCreativeIntent, projectVisualBible, visualLook, generateMotion, t]
+    [assets, modelTarget, productImages, productSafe, imageParams, autoMotion, videoModelTarget, projectCreativeIntent, projectVisualBible, visualLook, generateMotion, reloadPendingTasks, id, t]
   );
 
   // storyboard grid: ONE image generation renders every shot as a 3x3 grid cell (person /

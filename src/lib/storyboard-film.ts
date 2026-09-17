@@ -13,6 +13,7 @@
  */
 import type { Shot, ScriptCharacter } from "@/lib/db/schema";
 import { stripPauseMarks } from "@/lib/voice-markup";
+import { getFalVideoSpec } from "@/lib/providers/fal-video-params";
 import { getVideoParamSpec } from "@/lib/providers/video-params";
 
 /** Seedance 2.5 duration bounds (schema: integer 4-30 seconds) */
@@ -57,13 +58,19 @@ export interface FilmModelChoice {
  */
 export function resolveFilmModel(configured?: string | null): FilmModelChoice {
   const model = configured?.trim();
-  if (model && model.includes("/reference-to-video")) return { model };
+  if (model) {
+    const spec = getFalVideoSpec(model);
+    if (spec.referenceImages && (spec.audio || spec.nativeAudio)) return { model };
+  }
   return { model: FILM_FALLBACK_MODEL, ...(model ? { swappedFrom: model } : {}) };
 }
 
 /** The model's own longest single generation, when its schema declares a duration enum. */
 export function modelMaxSeconds(modelId?: string | null): number | undefined {
-  const durations = modelId ? getVideoParamSpec(modelId)?.durationEnum : undefined;
+  const fal = modelId ? getFalVideoSpec(modelId) : undefined;
+  if (fal?.durationRange) return fal.durationRange[1];
+  if (fal?.fixedDuration) return fal.fixedDuration;
+  const durations = fal?.durations ?? (modelId ? getVideoParamSpec(modelId)?.durationEnum : undefined);
   return durations?.length ? Math.max(...durations) : undefined;
 }
 
@@ -86,7 +93,7 @@ export interface FilmDurationFit {
  * as a silently truncated film. `overflow` lets callers refuse the spend instead.
  */
 export function filmDurationFit(shots: Shot[], modelId?: string | null): FilmDurationFit {
-  const scriptSeconds = Math.round(filmTotalSeconds(shots));
+  const scriptSeconds = Math.ceil(filmTotalSeconds(shots));
   const cap = Math.min(FILM_MAX_SECONDS, modelMaxSeconds(modelId) ?? FILM_MAX_SECONDS);
   return {
     seconds: Math.min(cap, Math.max(FILM_MIN_SECONDS, scriptSeconds)),
@@ -250,7 +257,7 @@ export interface ReferenceQuotaCheck {
  * sheet = 10 refs against Seedance's 9-image cap.
  */
 export function referenceQuotaCheck(referenceImageCount: number, modelId: string): ReferenceQuotaCheck {
-  const limit = getVideoParamSpec(modelId)?.maxReferenceImages;
+  const limit = getFalVideoSpec(modelId).maxReferenceImages ?? getVideoParamSpec(modelId)?.maxReferenceImages;
   if (limit === undefined) return { ok: true, count: referenceImageCount };
   return { ok: referenceImageCount <= limit, count: referenceImageCount, limit };
 }
@@ -275,10 +282,12 @@ export function buildStoryboardFilmPrompt(
      * "ungraded phone footage" wording doesn't fight the styled look.
      */
     realism?: boolean;
+    aspectRatio?: string;
+    seconds?: number;
   }
 ): string {
   const zh = shots.some((s) => CJK_RE.test(`${s.description ?? ""}${s.voiceover ?? ""}`));
-  const total = filmRequestSeconds(shots);
+  const total = opts?.seconds ?? filmRequestSeconds(shots);
   const cast = (characters ?? []).filter((c) => (c.name ?? "").trim());
   // single named character → attribute dialogue to them; otherwise a generic on-camera creator
   const soloName = cast.length === 1 ? (cast[0].name ?? "").trim() : "";
@@ -366,7 +375,7 @@ export function buildStoryboardFilmPrompt(
 
   if (zh) {
     return [
-      `竖屏 9:16 UGC 手机实拍感带货短视频，总时长约 ${total} 秒，共 ${shots.length} 个镜头，严格按下面的时间段硬切，一次生成整片。`,
+      `画幅 ${opts?.aspectRatio ?? "9:16"} UGC 手机实拍感带货短视频，总时长约 ${total} 秒，共 ${shots.length} 个镜头，严格按下面的时间段硬切，一次生成整片。`,
       bindingZh,
       castZh,
       `全局一致性：所有镜头是同一支视频——同一人物、同一发型与同一身衣服、同一场景与光线方向；商品外观在所有镜头中保持完全一致。`,
@@ -389,7 +398,7 @@ export function buildStoryboardFilmPrompt(
       .join("\n");
   }
   return [
-    `Vertical 9:16 UGC phone-shot style short video, about ${total} seconds total, ${shots.length} shots with hard cuts exactly at the timecodes below, generated as one continuous film.`,
+    `Aspect ratio ${opts?.aspectRatio ?? "9:16"} UGC phone-shot style short video, about ${total} seconds total, ${shots.length} shots with hard cuts exactly at the timecodes below, generated as one continuous film.`,
     bindingEn,
     castEn,
     `Global consistency: every shot belongs to the same video — same person, same hair and outfit, same location and light direction; the product looks identical in every shot.`,

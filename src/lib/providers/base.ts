@@ -231,10 +231,10 @@ export abstract class BaseProvider implements AIProvider {
       }
 
       if (isTerminal(status.status)) {
-        if (status.status === 'failed') {
+        if (status.status === 'failed' || status.status === 'cancelled') {
           const err = new ProviderError(
             `任务失败: ${status.error ?? '未知错误'}`,
-            status.errorCode ?? 'TASK_FAILED',
+            'TASK_FAILED',
             this.name
           )
           err.taskId = taskId

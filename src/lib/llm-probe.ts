@@ -19,7 +19,7 @@
  */
 
 import { explainLLMStatus, isLegacyPollinations, isTokenCapRejection, type LLMMessagePair } from "@/lib/llm-error";
-import { listModels, modelListHint, normalizeChatBase } from "@/lib/llm-models";
+import { llmAuthHeaders, listModels, modelListHint, normalizeChatBase } from "@/lib/llm-models";
 
 /** Probe completion budget. Large enough that no provider treats it as "cannot produce output". */
 export const PROBE_MAX_TOKENS = 64;
@@ -54,7 +54,7 @@ async function probeCompletion(
 ): Promise<{ res: Response; text: string }> {
   const res = await fetchImpl(`${base}/chat/completions`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    headers: { ...llmAuthHeaders(base, apiKey), "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: "hi" }],
@@ -86,7 +86,7 @@ export async function probeLLMEndpoint(input: ProbeInput): Promise<ProbeOutcome>
   // No model configured yet — fall back to key-level validation.
   if (!model) {
     const res = await fetchImpl(`${base}/models`, {
-      headers: { Authorization: `Bearer ${input.apiKey}` },
+      headers: llmAuthHeaders(base, input.apiKey),
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     if (res.ok) return { ok: true };

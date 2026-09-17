@@ -1,3 +1,4 @@
+import { markAiTaskDownloaded } from "./ai-tasks";
 import { existsSync } from "fs";
 import { rm } from "fs/promises";
 import { join } from "path";
@@ -26,7 +27,10 @@ export async function finalizeVideoRepair(input: {
   const existing = existingRows.find((row) => row.generationPlan && "kind" in row.generationPlan
     && row.generationPlan.kind === "repair"
     && row.generationPlan.operationId === summary.operationId);
-  if (existing) return existing;
+  if (existing) {
+    await markAiTaskDownloaded(input.projectId, summary.shotId, input.resultUrl, existing.filePath!);
+    return existing;
+  }
 
   const source = existingRows.find((row) => row.id === summary.sourceAssetId);
   if (!source?.filePath || source.status !== "done") throw new Error("原镜头不存在或尚未就绪");
@@ -52,7 +56,7 @@ export async function finalizeVideoRepair(input: {
       contentId: `${input.projectId}:${summary.operationId}`,
     });
     const generatedThumbnail = await extractFirstFrame(outputPath);
-    return await saveAssetCandidate({
+    const saved = await saveAssetCandidate({
       projectId: input.projectId,
       shotId: summary.shotId,
       type: "ai_generated",
@@ -65,6 +69,8 @@ export async function finalizeVideoRepair(input: {
       prompt: input.prompt,
       generationPlan: summary,
     });
+    await markAiTaskDownloaded(input.projectId, summary.shotId, input.resultUrl, saved.filePath!);
+    return saved;
   } finally {
     if (replacementPath !== sourcePath && replacementPath !== outputPath) {
       await rm(replacementPath, { force: true }).catch(() => undefined);

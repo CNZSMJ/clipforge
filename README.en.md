@@ -80,7 +80,7 @@
 - 🧩 **Infinite Canvas**: [canvas plugin](integrations/infinite-canvas/) — product images in, finished video back as a canvas node for further remixing.
 - 🚦 **Compliance**: explicit + implicit AIGC labeling, ad-law banned-term scan, publish-gate report — all on by default.
 - 🎚️ **Editing handoff upgrade (v0.9.5)**: adjustable BGM level and voice ducking; transcript edit plans now support JSON import, batch OTIO/EDL/CSV export, rhythm markers and an editable caption track; composition sidecars expose A1/A2/A3 audio mappings with optional dialogue/BGM WAV stems; CLI/MCP can pin platform exports to a specific composition and carry audio options through.
-- 🩹 **Fix (v0.8.94)**: Atlas Cloud one-key onboarding wrote the media gateway `/api/v1` into the script-model endpoint while chat lives on `/v1`, so every script generation 404'd and the error blamed the model name (issue #24). One-key now writes the chat gateway, existing settings are repaired on upgrade, a hand-typed media base is corrected before the request, and the key-connectivity test hits the chat gateway so a valid key no longer reads as "cannot determine".
+- Historical changelog (v0.8.94; applies to the retired Atlas integration, not this Fal branch).
 
 </details>
 
@@ -88,7 +88,7 @@
 
 - 🎭 [**Dramake**](https://github.com/xixihhhh/ai-short-drama-skill): a director-level AI short-drama Agent Skill that turns an idea, novel, or screenplay into a traceable workflow covering scripts, character bibles, storyboards, model and budget routing, voices, editing, and QA. It supports Codex, Claude Code, and WorkBuddy. Install it with `npx skills add xixihhhh/ai-short-drama-skill --skill dramake`.
 
-Want higher quality? Add one key: a single interface aggregates **7 platforms, 30+ curated models** (GPT Image 2 / **Seedance 2.5** / **MiniMax H3** / Kling O3 / Veo 3.1…), plus **200+ video models dynamically discovered** from the whole Atlas catalog — new models show up without upgrading the app. Self-hosted, open-source (AGPL-3.0) — your data never leaves your machine.
+For AI generation, configure your own **fal.ai key**. Models are selected from verified endpoint contracts; private project data is local, but prompts and reference media used for cloud generation are sent to Fal and its model providers.
 
 ## 🎬 Sample: one product photo in, a postable video out (Seedance 2.5 field test)
 
@@ -268,19 +268,18 @@ Yes. ClipForge ships an **MCP Server** (`clipforge_product_script` turns a produ
 >
 > 💰 **Paid-task safety**: every cloud video task is **persisted with its provider task ID the moment it is accepted** — a poll timeout, network drop, or restart can no longer lose a task you already paid for (the assets page offers "resume query", preventing duplicate billing); task-creating requests are **never auto-retried**; image-to-video requests are **validated and mapped to a true i2v model**, so "add motion" can never be billed as text-to-video; image sizes are **auto-adapted to each model's protocol** (exact aspect ratios), eliminating "invalid size but already billed" failures.
 
-One interface aggregates 7 image/video platforms + OpenRouter LLMs and 30+ curated models, plus **200+ dynamically discovered video models** on Atlas (the live model catalog is fetched at runtime and request params are derived from each model's published schema — every new model the platform ships appears in the picker without an app upgrade):
+Fal is the primary image/video/voice provider for this branch. Existing non-Atlas provider integrations remain available. This is a curated registry, not automatic discovery of every model in the Fal catalog.
 
 | Platform | Image models | Video models | Highlights |
 |------|---------|---------|------|
-| **[Atlas Cloud](https://www.atlascloud.ai?ref=JPM683)** ⭐ recommended | **GPT Image 2**, Seedream 5.0, Nano Banana 2 | **Seedance 2.5** (4-30s · native speech), Seedance 2.0, **MiniMax H3** (Hailuo 3.0 · 2K · native stereo), Kling O3, Veo 3.1, Wan 2.7, Hailuo 2.3, Vidu Q3 + 200+ discovered live | One key for LLM + image + video; widest models, best price |
-| **fal.ai** | **GPT Image 2** (+edit), FLUX.1/2 Pro, Recraft V4, Seedream V5 Edit | Kling 3.0 Pro, Veo 3, Hailuo 2.3, Luma Ray 2, Vidu Q2 | Broad model set, incl. OpenAI image gen & product-fidelity edit |
+| **fal.ai** | GPT Image / FLUX / Recraft / Seedream | Seedance 2.5 / Hailuo / Kling V3 / Veo 3 / Luma / Vidu / Wan | Explicit endpoint capability checks; see the migration review |
 | **Replicate** | FLUX 1.1 Pro/Kontext, Imagen 4, Seedream 4 | Kling v2.1, Seedance 1 Pro, Hailuo 02, Veo 3 Fast | Largest model library, unified predictions API |
 | **Volcengine (Ark)** | Seedream 5.0/4.0 | Seedance 2.0/1.0 Pro (native audio) | ByteDance flagship models, cinematic quality, fast |
 | **Alibaba Bailian** | Tongyi Wanxiang | Wanxiang 2.6/2.5/2.2/2.1 | Strong product image-to-video |
 | **SiliconFlow** | Kolors, Qwen-Image | - | Cost-effective, China-made |
 | **OpenAI** | **gpt-image-2** (any resolution + image edit), gpt-image-1.5 | - | 2026 flagship image model, strong text rendering, native 9:16, product-fidelity edit |
 
-> **LLM (script generation)** uses the OpenAI-compatible protocol, with built-in presets for Atlas Cloud / **OpenRouter** (400+ models) / DeepSeek / Kimi / Zhipu / Doubao / OpenAI.
+> **LLM (script generation)** uses the OpenAI-compatible protocol, with built-in presets for fal.ai / **OpenRouter** (400+ models) / DeepSeek / Kimi / Zhipu / Doubao / OpenAI.
 
 ### 3. Multi-source free asset engine 🆕 (not just AI generation)
 
@@ -406,7 +405,7 @@ open http://localhost:3000
 
 ### First-time setup
 
-1. Click **Settings** (top-right) and configure at least one AI platform's API key (we recommend **[Atlas Cloud](https://www.atlascloud.ai?ref=JPM683)** — one key for LLM + image + video)
+1. Click **Settings** (top-right) and configure at least one AI platform's API key (we recommend **fal.ai** — one key for LLM + image + video)
 2. Configure the LLM (needed for script generation; any OpenAI-compatible endpoint works)
 3. In "Defaults," pick your default image / video models (e.g. GPT Image 2, Seedance 2.5)
 4. (Optional) Add a character under "On-camera" and brand visuals under "Brand"
@@ -493,41 +492,15 @@ src/
 
 ---
 
-## Supported AI models (confirmed against official docs, 2026.08)
+## Fal model integration (contracts reviewed 2026-09-17)
 
-### Video generation
+Image families: GPT Image 2.5 Sunburst, GPT Image 2 / 1.5, FLUX, Recraft and Seedream V5 Lite. Video families: Seedance 2.5, Kling V3, Veo 3, Hailuo 02 / 2.3 / 03, Luma Ray 2, Vidu and Wan 2.2.
 
-| Model | Platform | Audio | Mode | Notes |
-|------|------|------|------|------|
-| **Seedance 2.5** ⭐ | Atlas Cloud | Native | T2V / I2V / ref / first-last | ByteDance flagship, native audio & speech, 4–30s, default for one-tap full film |
-| **Seedance 2.0** | Atlas Cloud | Native | T2V / I2V / ref / first-last | Native audio, 4–15s, up to 1440p |
-| **MiniMax H3** 🆕 | Atlas Cloud | Native stereo | T2V / I2V / ref / first-last | Hailuo 3.0 omni-modal (launched 2026-07-31), 2K, 4–15s, mixed image/video/audio references |
-| **Kling O3** 🆕 | Atlas Cloud | Native | T2V / I2V / ref / first-last | Kuaishou omni-modal MVL, multi-shot narrative, 3–15s |
-| **Veo 3.1** 🆕 | Atlas Cloud / fal.ai | Native | T2V / I2V / first-last | Google flagship, 4/6/8s, up to 4K |
-| **Wan 2.7** 🆕 | Atlas Cloud | Native | T2V / I2V / ref / first-last | Multi-shot narrative + AV sync, voice-clone references |
-| **Seedance 2.0 Mini** 🆕 | Atlas Cloud | Native | T2V / I2V / ref / first-last | Lightweight & economical for high-volume output |
-| **Kling 3.0 Pro** | fal.ai / Atlas Cloud | Native | T2V / I2V | Kling, multi-shot + face binding |
-| **Vidu Q3 Pro** | Atlas Cloud | - | T2V / I2V / first-last | First/last-frame transitions (transition magic) |
-| **Hailuo 2.3** | Atlas Cloud / fal.ai | - | T2V / I2V | MiniMax, lifelike motion physics, 6/10s |
-| **Luma Ray 2** | fal.ai | - | T2V / I2V | Realistic motion & physics |
-| **Seedance 1.5 Pro** | Volcengine / Atlas Cloud | - | T2V / I2V | ByteDance, cinematic quality |
-| **Wanxiang 2.6** | Alibaba Bailian | - | I2V | Strong product image-to-video |
+Capabilities belong to **specific endpoints**, not to a brand name. A text-to-video endpoint is not automatically a first/last-frame or reference endpoint. The application shares one validated capability registry between request construction and the director controls; unsupported hard constraints stop generation before billing instead of being discarded. Unknown custom endpoints require separate validation.
 
-> The table above is the built-in curated set (with capability guards). With Atlas Cloud enabled, the settings page also **dynamically discovers 200+ video models** across the catalog (Youchuan, HappyHorse, Grok Imagine, Gemini Omni Flash… with per-request pricing shown), and request bodies are built from each model's published schema at submit time — new platform models need no app upgrade.
+The default film flow uses a supported reference-to-video endpoint with native audio. Image edit requests preserve the supplied references; joint storyboard generation constrains appearance but cannot guarantee perfect face/product continuity. Review the actual rendered shots before delivery.
 
-### Image generation
-
-| Model | Platform | Notes |
-|------|------|------|
-| **GPT Image 2** ⭐ | Atlas Cloud | OpenAI's latest, any resolution, great product texture, natural-language edits (background/lighting/text) |
-| **Nano Banana 2** | Atlas Cloud | Google, strong-consistency image editing |
-| **FLUX.2 Pro** | fal.ai | Latest-gen high-quality generation |
-| **Recraft V4 Pro** | fal.ai | Strong design styling |
-| **Seedream 5.0 Lite** | Volcengine / Atlas Cloud | ByteDance, CJK-optimized, edit to relight while locking the subject |
-| **Wanxiang** | Alibaba Bailian | Product-scene friendly |
-
-> T2V = text-to-video, I2V = image-to-video. Audio-capable models output narrated video directly; others output silent.
-> For commerce, prefer **edit-class models** (GPT Image 2 / Seedream edit) to relight the product background while locking the subject from being altered.
+Fal pricing, entitlement and model availability must be checked in your own account. Old Atlas prices and its 200+ model auto-discovery claims do not apply to this branch. See [the migration audit and live acceptance checklist](docs/fal-migration-review.md).
 
 ---
 

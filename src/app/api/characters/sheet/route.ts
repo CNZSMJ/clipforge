@@ -1,7 +1,8 @@
+import { generateTrackedImage } from "@/lib/tracked-image";
+import { persistAssetSource } from "@/lib/asset-persistence";
+import { findAiTask, updateAiTaskByProviderTaskId } from "@/lib/ai-tasks";
+import { ProviderError } from "@/lib/providers/base";
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
-import { getDataDir } from "@/lib/paths";
 import { createProvider } from "@/lib/providers";
 import { buildCharacterSheetPrompt } from "@/lib/character-sheet";
 import { apiError, errText } from "@/lib/api-error";
@@ -16,9 +17,10 @@ import { apiError, errText } from "@/lib/api-error";
  * body: { appearance, name?, provider, model, apiKey, baseUrl?, options? }
  */
 export async function POST(req: NextRequest) {
+  let recoveryTaskId: string | undefined;
   try {
     const body = await req.json();
-    const { appearance, name, provider: providerName, model, apiKey, baseUrl, options } = body as {
+    const { appearance, name, provider: providerName, model, apiKey, baseUrl, options, taskId } = body as {
       appearance?: string;
       name?: string;
       provider?: string;
@@ -26,6 +28,7 @@ export async function POST(req: NextRequest) {
       apiKey?: string;
       baseUrl?: string;
       options?: Record<string, unknown>;
+      taskId?: string;
     };
     if (!appearance?.trim()) {
       return apiError(req, "缺少外观描述——先给主播写一段外观", "Missing appearance — describe the presenter first", 400);
@@ -39,45 +42,40 @@ export async function POST(req: NextRequest) {
 
     const prompt = buildCharacterSheetPrompt(appearance.trim(), name);
     const provider = createProvider({ name: providerName, apiKey, baseUrl: baseUrl ?? "" });
-    const result = await provider.generateImage({
+    const previous = taskId ? await findAiTask(providerName, taskId) : undefined;
+    if (taskId && (previous?.mode !== "character-sheet" || previous.prompt !== prompt)) throw new Error("定妆图任务不存在或不匹配当前外观描述");
+    recoveryTaskId = taskId;
+    let result: { taskId: string; imageUrls: string[] };
+    if (taskId) {
+      if (previous?.status === "completed" && previous.resultUrls?.[0]?.startsWith("/api/files/")) {
+        const url = await persistAssetSource("characters", previous.resultUrls[0], -1, "sheet");
+        return NextResponse.json({ url, prompt, taskId });
+      }
+      const recovered = provider.waitForTask
+        ? await provider.waitForTask(taskId, { interval: 3000 })
+        : await provider.getTaskStatus(taskId);
+      if (recovered.status === "failed" || recovered.status === "cancelled") throw new ProviderError(recovered.error || "定妆任务失败", "TASK_FAILED", providerName);
+      if (recovered.status !== "completed" || !recovered.result || !("imageUrls" in recovered.result) || !recovered.result.imageUrls.length) throw new Error("原定妆任务尚无可下载图片；已保留任务 ID，不会重新付费提交");
+      result = { taskId, imageUrls: recovered.result.imageUrls };
+    } else result = await generateTrackedImage(provider, {
       ...(options ?? {}),
       modelId: model,
       mode: "text-to-image",
-      prompt,
-    });
+      prompt, referenceImageUrl: undefined, referenceImageUrls: undefined,
+    }, { mode: "character-sheet", prompt });
+    recoveryTaskId = result.taskId;
     const sourceUrl = result.imageUrls?.[0];
     if (!sourceUrl) throw new Error("生图未返回图片");
 
-    // persist into uploads/characters — served via /api/files/characters/<file>
-    const dir = join(getDataDir(), "uploads", "characters");
-    await mkdir(dir, { recursive: true });
-    let buf: Buffer;
-    let ext = "png";
-    if (sourceUrl.startsWith("data:")) {
-      const comma = sourceUrl.indexOf(",");
-      if (comma === -1) throw new Error("无法解析 data URI 图片");
-      buf = Buffer.from(sourceUrl.slice(comma + 1), "base64");
-      const meta = sourceUrl.slice(5, comma);
-      if (meta.includes("webp")) ext = "webp";
-      else if (meta.includes("jpeg") || meta.includes("jpg")) ext = "jpg";
-    } else if (/^https?:\/\//.test(sourceUrl)) {
-      const resp = await fetch(sourceUrl);
-      if (!resp.ok) throw new Error(`下载定妆图失败: ${resp.status}`);
-      buf = Buffer.from(await resp.arrayBuffer());
-      const ct = resp.headers.get("content-type") || "";
-      if (ct.includes("webp")) ext = "webp";
-      else if (ct.includes("jpeg") || ct.includes("jpg")) ext = "jpg";
-    } else {
-      throw new Error("不支持的图片来源");
-    }
-    const fileName = `sheet-${Date.now()}.${ext}`;
-    await writeFile(join(dir, fileName), buf);
-
-    return NextResponse.json({ url: `/api/files/characters/${fileName}`, prompt });
+    const url = await persistAssetSource("characters", sourceUrl, -1, "sheet");
+    if (!/\.(png|jpe?g|webp|gif)$/i.test(url)) throw new Error("定妆结果不是图片");
+    await updateAiTaskByProviderTaskId(providerName, result.taskId, { status: "completed", resultUrls: [url], error: null });
+    return NextResponse.json({ url, prompt, taskId: result.taskId });
   } catch (error) {
+    recoveryTaskId ??= error instanceof ProviderError ? error.taskId : undefined;
     console.error("多视图定妆生成失败:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : errText(req, "多视图定妆生成失败", "Character sheet generation failed") },
+      { error: error instanceof Error ? error.message : errText(req, "多视图定妆生成失败", "Character sheet generation failed"), ...(recoveryTaskId && { taskId: recoveryTaskId, recoverable: !(error instanceof ProviderError && error.code === "TASK_FAILED") }) },
       { status: 500 }
     );
   }

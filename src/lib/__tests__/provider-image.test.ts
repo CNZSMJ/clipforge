@@ -23,13 +23,10 @@ describe("toProviderImage", () => {
     expect(out).toBe("https://example.com/a.png");
   });
 
-  it("never throws when staging fails — the caller still gets an input", async () => {
+  it("fails before billing when staging fails; never substitutes a local URL or Base64", async () => {
     const uploadLocalMedia = vi.fn(async () => { throw new Error("cdn down"); });
     // a distinct path: the successful case above is cached per file on purpose
-    const out = await toProviderImage("/api/files/proj/2.png", { uploadLocalMedia });
-    // either a data URI (file readable) or the original ref (file missing in the test env)
-    expect(typeof out).toBe("string");
-    expect(out).not.toBe("https://cdn.fal.media/files/x.png");
+    await expect(toProviderImage("/api/files/proj/2.png", { uploadLocalMedia })).rejects.toThrow("cdn down");
   });
 
   it("returns undefined for an empty ref", async () => {

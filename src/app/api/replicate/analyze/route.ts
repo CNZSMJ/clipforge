@@ -1,3 +1,4 @@
+import { withLocalCors, localCorsPreflight } from "@/lib/local-cors";
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
@@ -21,7 +22,7 @@ const EXT_BY_MIME: Record<string, string> = { "video/mp4": "mp4", "video/webm": 
  * detects scene cuts with ffmpeg (same detector as the contact sheet), and returns the
  * shot-duration skeleton plus the ready-to-use referenceStructure prompt block.
  */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   let formData: FormData;
   try {
     formData = await req.formData();
@@ -71,3 +72,7 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+// Route-local CORS keeps large request bodies out of Next proxy buffering.
+export const OPTIONS = localCorsPreflight;
+export const POST = withLocalCors(handlePOST);

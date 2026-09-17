@@ -1,3 +1,4 @@
+import { withLocalCors, localCorsPreflight } from "@/lib/local-cors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDataDir } from "@/lib/paths";
 import { writeFile, mkdir } from "fs/promises";
@@ -7,7 +8,7 @@ import { apiError, errText } from "@/lib/api-error";
 const ALLOWED = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/aac", "audio/mp4", "audio/x-m4a"];
 
 // Upload background music (mixed in during composition with auto-ducking to make room for voiceover)
-export async function POST(
+async function handlePOST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -43,3 +44,7 @@ export async function POST(
     );
   }
 }
+
+// Route-local CORS keeps large request bodies out of Next proxy buffering.
+export const OPTIONS = localCorsPreflight;
+export const POST = withLocalCors(handlePOST);

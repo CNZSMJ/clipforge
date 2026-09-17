@@ -1,3 +1,5 @@
+import { FAL_IMAGE_SPECS } from "@/lib/providers/fal-image-params";
+import { FAL_VIDEO_SPECS } from "@/lib/providers/fal-video-params";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/config";
@@ -133,6 +135,33 @@ const POLLINATIONS_BASE_URL = "https://gen.pollinations.ai/v1";
  * 只监听 127.0.0.1，用户会看到一个无从排查的"连不上"（issue #19 追问）。同端口同机，改写无副作用。
  */
 export function migrateSettings(state: SettingsState): SettingsState {
+  // v6: Atlas credentials are NOT fal credentials. Never forward them to the new vendor.
+  const retired = (name: string) => /^(atlas|atlas-cloud|atlascloud)$/i.test(name);
+  const atlasUrl = (value?: string) => {
+    try { const host = new URL(value || "").hostname; return host === "atlascloud.ai" || host.endsWith(".atlascloud.ai"); }
+    catch { return false; }
+  };
+  const oldProviders = state.providers ?? {};
+  const hadAtlas = Object.entries(oldProviders).some(([name, value]) => retired(name) || atlasUrl(value.baseUrl));
+  const otherConfigured = Object.entries(oldProviders).some(([name, value]) => !retired(name) && !atlasUrl(value.baseUrl) && value.enabled && value.apiKey);
+  const retiredModels = new Set((state.customModels ?? []).filter(m => retired(m.provider)).map(m => m.id));
+  state.providers = Object.fromEntries(Object.entries(oldProviders).filter(([name]) => !retired(name)));
+  for (const [name, setting] of Object.entries(state.providers)) {
+    if (atlasUrl(setting.baseUrl)) {
+      if (name === "fal-ai") state.providers[name] = { enabled: false, apiKey: "", baseUrl: FAL_BASE_URL };
+      else delete state.providers[name];
+    }
+  }
+  state.providers["fal-ai"] ??= { enabled: false, apiKey: "", baseUrl: FAL_BASE_URL };
+  state.customModels = (state.customModels ?? []).filter(m => !retired(m.provider));
+  if (retiredModels.has(state.defaultImageModel) || (hadAtlas && !otherConfigured && !FAL_IMAGE_SPECS[state.defaultImageModel])) state.defaultImageModel = FAL_ONEKEY_MODELS.image;
+  if (retiredModels.has(state.defaultVideoModel) || (hadAtlas && !otherConfigured && !FAL_VIDEO_SPECS[state.defaultVideoModel])) state.defaultVideoModel = FAL_ONEKEY_MODELS.video;
+  if (state.llm && (retired(state.llm.provider) || atlasUrl(state.llm.baseUrl))) {
+    state.llm = { provider: "fal.ai", baseUrl: FAL_LLM_BASE_URL, apiKey: "", model: FAL_ONEKEY_MODELS.llm, visionModel: FAL_ONEKEY_MODELS.vision };
+  }
+  if (state.tts && (retired(state.tts.provider || "") || atlasUrl(state.tts.baseUrl))) {
+    state.tts = { enabled: false, provider: "falai", baseUrl: FAL_BASE_URL, apiKey: "", model: FAL_TTS_MODEL, voice: FAL_TTS_VOICE, speed: state.tts.speed ?? 1 };
+  }
   const llm = state?.llm;
   if (llm?.baseUrl) {
     const fixes: Array<{ hostRe: RegExp; from: string; to: string }> = [
@@ -252,14 +281,16 @@ export const useSettingsStore = create<SettingsState>()(
             },
             providers: {
               ...state.providers,
-              "fal-ai": { ...state.providers["fal-ai"], enabled: true, apiKey: key },
+              "fal-ai": { ...state.providers["fal-ai"], enabled: true, apiKey: key, baseUrl: FAL_BASE_URL },
             },
             defaultImageModel: def.image,
             defaultVideoModel: def.video,
             // 配音：之前没开过才默认接 fal TTS（复用同一个 Key），已配则保持不动
-            tts: state.tts.enabled
+            tts: state.tts.enabled && state.tts.provider !== "falai"
               ? state.tts
-              : { ...state.tts, enabled: true, provider: "falai", baseUrl: FAL_BASE_URL, model: FAL_TTS_MODEL, voice: FAL_TTS_VOICE },
+              : { ...state.tts, enabled: true, provider: "falai", apiKey: key, groupId: undefined,
+                  baseUrl: FAL_BASE_URL, model: state.tts.provider === "falai" && state.tts.model ? state.tts.model : FAL_TTS_MODEL,
+                  voice: state.tts.provider === "falai" && state.tts.voice ? state.tts.voice : FAL_TTS_VOICE },
           };
         }),
     }),
@@ -271,7 +302,8 @@ export const useSettingsStore = create<SettingsState>()(
       // v2：把已停用的 Pollinations 免 Key 地址迁到新端点（见 migrateSettings 注释）。
       // v3：Ollama 的 localhost:11434 改写成 127.0.0.1:11434（Windows 上 ::1 连不通）。
       // v4：补充面向创作目标的生产方案；旧设置迁移到兼顾质量与成本的 balanced。
-      version: 5,
+      // v6: retire Atlas settings; require a real fal key instead of copying credentials.
+      version: 6,
       migrate: (persisted) => migrateSettings(persisted as SettingsState),
     }
   )

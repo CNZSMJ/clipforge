@@ -1,3 +1,4 @@
+import { withLocalCors, localCorsPreflight } from "@/lib/local-cors";
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { join } from "path";
@@ -100,7 +101,7 @@ function failure(req: NextRequest, error: unknown) {
     500,
   );
 }
-export async function GET(
+async function handleGET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -119,7 +120,7 @@ export async function GET(
 }
 
 /** Raw files stream to disk. Legacy multipart remains bounded and reports per-file outcomes. */
-export async function POST(
+async function handlePOST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -216,7 +217,7 @@ export async function POST(
     return failure(req, error);
   }
 }
-export async function PATCH(
+async function handlePATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -242,3 +243,9 @@ export async function PATCH(
     return failure(req, error);
   }
 }
+
+// Route-local CORS keeps large request bodies out of Next proxy buffering.
+export const OPTIONS = localCorsPreflight;
+export const POST = withLocalCors(handlePOST);
+export const GET = withLocalCors(handleGET);
+export const PATCH = withLocalCors(handlePATCH);

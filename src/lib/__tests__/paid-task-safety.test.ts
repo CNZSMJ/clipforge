@@ -98,7 +98,7 @@ describe("非幂等付费 POST 的重试策略（issue #16 问题1）", () => {
 describe("两阶段提交：先拿 task ID 再轮询（issue #16 问题2/3）", () => {
   it("submitVideoTask 只提交不轮询：返回 taskId，getTaskStatus 不被调用", async () => {
     const p = new FalAIProvider(cfg);
-    vi.spyOn(asAny(p), "request").mockResolvedValue({ request_id: "task-3" });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ request_id: "task-3" })));
     const statusSpy = vi.spyOn(p, "getTaskStatus");
     const { taskId, modelId } = await p.submitVideoTask({
       modelId: "bytedance/seedance-2.5/image-to-video",

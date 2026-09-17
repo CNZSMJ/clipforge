@@ -40,7 +40,7 @@ describe("buildCreditsManifest", () => {
   const stockBy = { shotId: 0, type: "stock_footage", provider: "openverse", filePath: "a.jpg", sourceUrl: "https://x/1", author: "Alice", license: "by-2.0" };
   const stockPd = { shotId: 1, type: "stock_footage", provider: "nasa", filePath: "b.mp4", sourceUrl: "https://x/2", author: "NASA", license: "Public Domain (NASA)" };
   const own = { shotId: 2, type: "user_upload", provider: "local", filePath: "c.png" };
-  const ai = { shotId: 3, type: "ai_generated", provider: "atlas", filePath: "d.png" };
+  const ai = { shotId: 3, type: "ai_generated", provider: "fal-ai", filePath: "d.png" };
   const nc = { shotId: 4, type: "stock_footage", provider: "openverse", filePath: "e.jpg", sourceUrl: "https://x/3", author: "Bob", license: "by-nc-4.0" };
 
   it("classifies origins, kinds and risks; summary counts add up", () => {

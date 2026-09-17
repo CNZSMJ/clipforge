@@ -165,7 +165,7 @@ export const aiTasks = sqliteTable("ai_tasks", {
   // provider-side task/prediction ID — the recovery handle for a paid task
   taskId: text("task_id").notNull(),
   // unknown = client lost contact (poll timeout / restart); the cloud task may still be running
-  status: text("status", { enum: ["submitted", "processing", "completed", "failed", "unknown"] }).notNull().default("submitted"),
+  status: text("status", { enum: ["submitted", "processing", "completed", "failed", "unknown", "download_pending"] }).notNull().default("submitted"),
   resultUrls: text("result_urls", { mode: "json" }).$type<string[]>(),
   error: text("error"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),

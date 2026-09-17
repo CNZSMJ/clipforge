@@ -34,7 +34,7 @@ describe("video model capabilities", () => {
   });
 
   it("does not invent a reference sibling for the fast-only family", () => {
-    const caps = getVideoModelCapabilities("bytedance/seedance-2.0-fast/image-to-video", false, "fal-ai");
+    const caps = getVideoModelCapabilities("fal-ai/minimax/hailuo-2.3/standard/image-to-video", false, "fal-ai");
     expect(caps.referenceImages).toBe(false);
     expect(caps.referenceVideo).toBe(false);
   });
@@ -107,7 +107,7 @@ describe("video model capabilities", () => {
 
   it("warns before dropping unsupported reference conditioning", () => {
     const result = preflightVideoGeneration({
-      modelId: "google/veo3.1/image-to-video",
+      modelId: "fal-ai/veo3",
       provider: "fal-ai",
       resolution: "1080p",
       aspectRatio: "9:16",

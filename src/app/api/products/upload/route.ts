@@ -1,3 +1,4 @@
+import { withLocalCors, localCorsPreflight } from "@/lib/local-cors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDataDir } from "@/lib/paths";
 import { writeFile, mkdir } from "fs/promises";
@@ -24,7 +25,7 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 // Upload product-library images: not tied to a project; written to disk at data/uploads/products/<productId>/ by productId.
 // The returned /api/files/products/... path is served by the existing static-file route and stays valid across page reloads and navigation (replacing short-lived blob: URLs).
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   let formData: FormData;
   try {
     formData = await req.formData();
@@ -96,3 +97,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ paths: savedPaths });
 }
+
+// Route-local CORS keeps large request bodies out of Next proxy buffering.
+export const OPTIONS = localCorsPreflight;
+export const POST = withLocalCors(handlePOST);

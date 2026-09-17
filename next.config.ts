@@ -5,11 +5,9 @@ const nextConfig: NextConfig = {
   // used by the Electron main process to fork-start the server without requiring npm install on the user's machine. Does not affect next dev.
   output: "standalone",
   experimental: {
-    // The local-tool CORS proxy matches /api/*, and Next buffers the body for middleware: requests
-    // over 10MB were dropped before reaching the handler, so a normal phone photo failed to upload
-    // with a bare 400 even though /api/upload itself allows 20MB per file. Give the proxy room to
-    // hand the body through untouched; the route's own 20MB/file check stays the real limit.
-    middlewareClientMaxBodySize: 64 * 1024 * 1024,
+    // Media entrypoints bypass the proxy and enforce their own streaming size limits.
+    // This cap applies only to the remaining (primarily JSON) API requests.
+    proxyClientMaxBodySize: 64 * 1024 * 1024,
   },
   // better-sqlite3 is a native module; mark it external (loaded via require, so the bundler won't try to bundle its .node file)
   serverExternalPackages: ["better-sqlite3"],

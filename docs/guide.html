@@ -51,7 +51,7 @@
     { "@type": "Question", "name": "AI 生成成片一条要多少钱?", "acceptedAnswer": { "@type": "Answer", "text": "按秒计费:九宫格分镜一次生图约 1.3 元,Seedance 2.5 整片 12 秒实测约 26 元;换便宜档(Seedance Mini 约 0.28 元/秒)一条 8 秒约 2.2 元。费用在选项上直接标明,脚本确认后点一次才产生,按量付给你自己选的模型平台。" } },
     { "@type": "Question", "name": "真人口播视频需要真人拍摄吗?", "acceptedAnswer": { "@type": "Answer", "text": "不需要。选「真人口播」形式后,AI 生成素人形象对镜口播,台词由人物原声逐字说出、口型对齐;也可以在主播库自建主播,四视图定妆照跨镜头跨视频锁脸。" } },
     { "@type": "Question", "name": "生成到一半失败了怎么办?", "acceptedAnswer": { "@type": "Answer", "text": "免费链路可无限重试(不花钱);AI 链路采用两阶段任务表,已提交的云端任务可在素材页恢复领取,不会白扣费。任一步失败都可转导演模式手动逐步完成。" } },
-    { "@type": "Question", "name": "支持哪些 AI 模型平台?", "acceptedAnswer": { "@type": "Answer", "text": "一个接口聚合 7 大平台 30+ 模型:Atlas Cloud(推荐,一个 Key 覆盖脚本+生图+视频+配音)、火山方舟、fal.ai、OpenAI、DeepSeek 等;支持 GPT Image 2、Seedance 2.5/2.0 全系、Kling 3.0 等,也可添加自定义模型。" } },
+    { "@type": "Question", "name": "支持哪些 AI 模型平台?", "acceptedAnswer": { "@type": "Answer", "text": "一个接口聚合 7 大平台 30+ 模型:fal.ai(推荐,一个 Key 覆盖脚本+生图+视频+配音)、火山方舟、fal.ai、OpenAI、DeepSeek 等;支持 GPT Image 2、已接入的 Seedance 2.5 端点、Kling 3.0 等,也可添加自定义模型。" } },
     { "@type": "Question", "name": "视频会被平台判定为 AI 内容限流吗?", "acceptedAnswer": { "@type": "Answer", "text": "ClipForge 合规默认开:成片自动写入 AIGC 隐式标识(对齐国标 GB 45438-2025)并默认烧录显式「AI 生成」标识,发布前有限流自检与广告法违禁词扫描——按平台规则标识的 AI 内容属于有条件允许,刻意去标识才是高风险行为。" } }
   ]
 }
@@ -150,12 +150,12 @@ cd clipforge &amp;&amp; pnpm install &amp;&amp; pnpm dev</code></pre>
   <li>点<b>「开始生成」</b>——写脚本 → 免费素材配画面 → 配音合成,一张进度卡全程托管,完成后直达成片页下载。</li>
 </ol>
 <figure><img class="shot" src="screenshots/01-home.png" alt="ClipForge 工作台截图:上传商品图,免费快剪与 AI 生成成片双档选择,带货形式四选" loading="lazy"><figcaption>工作台:输入 + 出片方式 + 带货形式,三行搞定</figcaption></figure>
-<div class="tip"><p>唯一的前置项:写脚本需要一个 <b>LLM Key</b>(任何 OpenAI 协议平台都行,DeepSeek 单次约 ¥0.001;推荐 <a href="https://www.atlascloud.ai?ref=JPM683" target="_blank" rel="noopener">Atlas Cloud</a>,一个 Key 后面 AI 生成也全够用)。第一次点生成时页面会内联引导粘贴,不用跳设置。</p></div>
+<div class="tip"><p>唯一的前置项:写脚本需要一个 <b>LLM Key</b>(任何 OpenAI 协议平台都行,DeepSeek 单次约 ¥0.001;推荐 <a href="https://fal.ai/dashboard/keys" target="_blank" rel="noopener">fal.ai</a>,一个 Key 后面 AI 生成也全够用)。第一次点生成时页面会内联引导粘贴,不用跳设置。</p></div>
 
 <h2 id="keys">三、配一个 Key,解锁 AI 生成</h2>
 <p>ClipForge 是开源 BYOK(自带 Key)工具:<b>软件永远免费,AI 用量按秒付给你选的模型平台</b>,我们不加价不抽成。一个接口聚合 7 大平台 30+ 模型:</p>
 <ul>
-  <li><b>Atlas Cloud(推荐)</b>:一个 Key 覆盖脚本 + 生图(GPT Image 2)+ 视频(Seedance 2.5/2.0 全系)+ 配音,在 <b>设置 → 平台 Key</b> 粘贴即完成;</li>
+  <li><b>fal.ai(推荐)</b>:一个 Key 覆盖脚本 + 生图(GPT Image 2)+ 视频(已接入的 Seedance 2.5 端点)+ 配音,在 <b>设置 → 平台 Key</b> 粘贴即完成;</li>
   <li>也支持火山方舟、fal.ai、OpenAI、DeepSeek 等,<b>设置 → 生图模型 / 视频模型</b> 里各选一个默认模型即可;</li>
   <li>模型清单运行时自动拉取,新模型上架即可用,还能添加自定义模型 ID。</li>
 </ul>
@@ -254,7 +254,7 @@ cd clipforge &amp;&amp; pnpm install &amp;&amp; pnpm dev</code></pre>
   <tbody>
     <tr><td>「尚未配置 LLM，请先到设置填写 API Key」</td><td>没配写脚本的 Key</td><td>设置 →「脚本模型」点快捷预设 + 填 Key,点「测试连接」</td></tr>
     <tr><td>测试连接失败 / 401</td><td>Key 填错或带空格</td><td>重新复制粘贴;402 是平台没余额,404 是模型名写错(点「读取可用模型」从列表选)</td></tr>
-    <tr><td>「还没配好生图/视频模型」</td><td>AI 档缺模型</td><td>设置 →「生图模型」「视频模型」各选一个,或直接接 Atlas 一个 Key</td></tr>
+    <tr><td>「还没配好生图/视频模型」</td><td>AI 档缺模型</td><td>设置 →「生图模型」「视频模型」各选一个,或直接接 Fal Key</td></tr>
     <tr><td>模型下拉框是空的</td><td>该平台 Key 没填或无效</td><td>先在「平台 Key」里填好 Key,模型列表会自动出现</td></tr>
     <tr><td>没能从商品链接抓到信息</td><td>该站点反爬</td><td>改用「上传商品图」建项目</td></tr>
     <tr><td>成片没有声音</td><td>配音被关了</td><td>视频页 →「配音 (TTS)」→ 打开「启用自动配音」</td></tr>

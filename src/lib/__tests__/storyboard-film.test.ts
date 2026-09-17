@@ -264,8 +264,8 @@ describe("referenceQuotaCheck（付费前参考图配额闸）", () => {
  */
 describe("一键整片：模型解析与时长适配", () => {
   it("resolveFilmModel：reference-to-video 模型原样保留，其余回退并记录被替换的模型", () => {
-    expect(resolveFilmModel("alibaba/wan-3.0/reference-to-video")).toEqual({
-      model: "alibaba/wan-3.0/reference-to-video",
+    expect(resolveFilmModel("fal-ai/minimax/hailuo-03/reference-to-video")).toEqual({
+      model: "fal-ai/minimax/hailuo-03/reference-to-video",
     });
     expect(resolveFilmModel("bytedance/seedance-2.0/text-to-video")).toEqual({
       model: FILM_FALLBACK_MODEL,

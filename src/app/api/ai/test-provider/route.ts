@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { normalizeChatBase } from "@/lib/llm-models";
 
 /**
  * AI 平台 Key 连通性校验（生图/生视频平台）。
@@ -19,16 +18,15 @@ const DEFAULT_BASE: Record<string, string> = {
   openai: "https://api.openai.com/v1",
 };
 
-type Probe = { url: string; headers: Record<string, string>; authFirst?: boolean; method?: "GET" | "POST"; body?: string };
+type Probe = { url: string; headers: Record<string, string>; method?: "GET" | "POST"; body?: string };
 
 function buildProbe(name: string, apiKey: string, baseUrl?: string): Probe {
   const base = (baseUrl || DEFAULT_BASE[name] || "").replace(/\/$/, "");
   if (name === "fal-ai") {
-    // fal 先校验鉴权再解析 request id：到达 404/422 即说明 Key 有效
+    // Only a successful read proves access; 404/422/429/5xx never establish key validity.
     return {
       url: `${base}/fal-ai/flux/requests/00000000-0000-0000-0000-000000000000/status`,
       headers: { Authorization: `Key ${apiKey}` },
-      authFirst: true,
     };
   }
   if (name === "replicate") {
@@ -45,12 +43,13 @@ function buildProbe(name: string, apiKey: string, baseUrl?: string): Probe {
 export async function POST(req: NextRequest) {
   let body: { name?: string; apiKey?: string; baseUrl?: string } = {};
   try {
-    body = await req.json();
+    const parsed: unknown = await req.json();
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) body = parsed;
   } catch {
     /* 空 body */
   }
   const { name, apiKey, baseUrl } = body;
-  if (!name || !apiKey) {
+  if (typeof name !== "string" || !name.trim() || typeof apiKey !== "string" || !apiKey.trim() || (baseUrl != null && typeof baseUrl !== "string")) {
     return NextResponse.json({ status: "unknown", message: "缺少平台或 Key" }, { status: 400 });
   }
 
@@ -58,12 +57,11 @@ export async function POST(req: NextRequest) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const r = await fetch(probe.url, { method: probe.method ?? "GET", headers: probe.headers, body: probe.body, signal: controller.signal });
+    const r = await fetch(probe.url, { method: probe.method ?? "GET", headers: probe.headers, body: probe.body, signal: controller.signal, redirect: "error" });
     if (r.status === 401 || r.status === 403) {
       return NextResponse.json({ status: "invalid", message: "Key 无效或无权限" });
     }
-    if (r.ok || probe.authFirst) {
-      // authFirst 平台：非 401/403 即视为鉴权通过
+    if (r.ok) {
       return NextResponse.json({ status: "ok", message: "连接正常" });
     }
     return NextResponse.json({ status: "unknown", message: `无法判定（HTTP ${r.status}），可直接试生成` });

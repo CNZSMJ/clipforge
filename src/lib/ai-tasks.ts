@@ -2,8 +2,9 @@
  * Persistence helpers for billable AI generation tasks (ai_tasks table).
  *
  * Purpose (issue #16): the provider task ID must hit disk the moment the cloud
- * acknowledges a paid task — before any polling — so a poll timeout, crash, or
- * restart can never lose a task the user has already been billed for.
+ * acknowledges a paid task — before polling — so ordinary polling/download failures
+ * can resume the same job. A process crash between upstream acknowledgement and a
+ * successful local write still requires reconciliation with the provider dashboard.
  *
  * All writes are best-effort: a DB hiccup must never break the generation flow
  * itself (the API response still carries the task ID as a fallback).
@@ -14,10 +15,10 @@ import { aiTasks } from "@/lib/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import type { GenerationControlSummary } from "@/lib/video-repair-plan";
 
-export type AiTaskStatus = "submitted" | "processing" | "completed" | "failed" | "unknown";
+export type AiTaskStatus = "submitted" | "processing" | "completed" | "failed" | "unknown" | "download_pending";
 
 /** Statuses that still need attention — shown in the recovery UI, resumable after restart */
-export const ACTIVE_AI_TASK_STATUSES: AiTaskStatus[] = ["submitted", "processing", "unknown"];
+export const ACTIVE_AI_TASK_STATUSES: AiTaskStatus[] = ["submitted", "processing", "unknown", "download_pending"];
 
 export interface RecordAiTaskInput {
   projectId?: string;
@@ -114,4 +115,21 @@ export async function listAiTasks(projectId: string, activeOnly: boolean) {
 export async function listActiveAiTasksAllProjects() {
   const db = getDb();
   return db.select().from(aiTasks).where(inArray(aiTasks.status, ACTIVE_AI_TASK_STATUSES));
+}
+
+/** Look up a recovery context; never infer a task's project from a caller-supplied URL. */
+export async function findAiTask(provider: string, taskId: string) {
+  const [row] = await getDb().select().from(aiTasks)
+    .where(and(eq(aiTasks.provider, provider), eq(aiTasks.taskId, taskId))).limit(1);
+  return row;
+}
+
+/** Cloud completion is NOT local completion. Only acknowledge a durably saved candidate. */
+export async function markAiTaskDownloaded(projectId: string, shotId: number | null, sourceUrl: string, filePath: string) {
+  const rows = await listAiTasks(projectId, true);
+  for (const row of rows) {
+    if (row.shotId === shotId && row.resultUrls?.includes(sourceUrl)) {
+      await updateAiTask(row.id, { status: "completed", resultUrls: [filePath], error: null });
+    }
+  }
 }

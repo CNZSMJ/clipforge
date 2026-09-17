@@ -1,57 +1,21 @@
+import { generateTrackedImage } from "@/lib/tracked-image";
+import { storyboardGridMode, persistStoryboardGrid } from "@/lib/storyboard-grid-persistence";
+import { updateAiTaskByProviderTaskId } from "@/lib/ai-tasks";
+import { ProviderError } from "@/lib/providers/base";
 import { NextRequest, NextResponse } from "next/server";
-import { execFile } from "child_process";
-import { promisify } from "util";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
-import { getDataDir } from "@/lib/paths";
 import { getDb } from "@/lib/db";
-import { scripts, assets } from "@/lib/db/schema";
+import { scripts } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { createProvider } from "@/lib/providers";
 import { toProviderImage } from "@/lib/remote-image";
-import { buildStoryboardGridPrompt, computeGridCells, GRID_MAX_SHOTS } from "@/lib/storyboard-grid";
-import { ffmpegBin } from "@/lib/ffmpeg-path";
-import { probeMedia } from "@/lib/media-probe";
+import { buildStoryboardGridPrompt, GRID_MAX_SHOTS } from "@/lib/storyboard-grid";
 import { apiError, errText } from "@/lib/api-error";
-
-const execFileAsync = promisify(execFile);
-
-/** Download or decode the generated grid image into the project uploads dir; returns the physical path + public path. */
-async function persistGridImage(projectId: string, sourceUrl: string): Promise<{ absPath: string; publicPath: string }> {
-  const dir = join(getDataDir(), "uploads", projectId);
-  await mkdir(dir, { recursive: true });
-  let buf: Buffer;
-  let ext = "png";
-  if (sourceUrl.startsWith("data:")) {
-    const comma = sourceUrl.indexOf(",");
-    if (comma === -1) throw new Error("无法解析 data URI 图片");
-    const meta = sourceUrl.slice(5, comma);
-    buf = /;base64/i.test(meta)
-      ? Buffer.from(sourceUrl.slice(comma + 1), "base64")
-      : Buffer.from(decodeURIComponent(sourceUrl.slice(comma + 1)), "utf-8");
-    if (meta.includes("webp")) ext = "webp";
-    else if (meta.includes("jpeg") || meta.includes("jpg")) ext = "jpg";
-  } else if (/^https?:\/\//.test(sourceUrl)) {
-    const resp = await fetch(sourceUrl);
-    if (!resp.ok) throw new Error(`下载九宫格图失败: ${resp.status}`);
-    buf = Buffer.from(await resp.arrayBuffer());
-    const ct = resp.headers.get("content-type") || "";
-    if (ct.includes("webp")) ext = "webp";
-    else if (ct.includes("jpeg") || ct.includes("jpg")) ext = "jpg";
-  } else {
-    throw new Error("不支持的图片来源");
-  }
-  const fileName = `storyboard-grid-${Date.now()}.${ext}`;
-  const absPath = join(dir, fileName);
-  await writeFile(absPath, buf);
-  return { absPath, publicPath: `/api/files/${projectId}/${fileName}` };
-}
 
 /**
  * POST /api/project/[id]/storyboard-grid — one-image consistency anchoring.
  *
  * Renders ALL shots of a script as a single 3x3 storyboard grid (same person /
- * outfit / room / light physically guaranteed by being one generation), then
+ * outfit / room / light jointly conditioned in one generation (still requires visual QC)), then
  * crops each cell into that shot's keyframe asset. The existing per-shot i2v
  * pass ("animate") picks the keyframes up from there. Scripts with more than 9
  * shots are rejected honestly instead of silently truncated.
@@ -59,6 +23,7 @@ async function persistGridImage(projectId: string, sourceUrl: string): Promise<{
  * body: { scriptId, provider, model, apiKey, baseUrl?, options? }
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  let recoveryTaskId: string | undefined;
   try {
     const { id } = await params;
     if (!/^[a-zA-Z0-9-]+$/.test(id)) {
@@ -117,57 +82,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       characterSheet: !!characterSheetUrl,
       productImage: !!productImageUrl,
     });
-    const result = await provider.generateImage({
+    const taskMode = storyboardGridMode(scriptId, shots);
+    const result = await generateTrackedImage(provider, {
       ...(options ?? {}),
       modelId: model,
       mode: referenceImageUrls.length > 0 ? "image-to-image" : "text-to-image",
-      ...(referenceImageUrls.length > 0 && { referenceImageUrls }),
+      referenceImageUrl: undefined, referenceImageUrls,
       prompt,
-    });
+    }, { projectId: id, mode: taskMode, prompt });
+    recoveryTaskId = result.taskId;
     const gridUrl = result.imageUrls?.[0];
     if (!gridUrl) throw new Error("生图未返回图片");
 
-    // 2) persist the grid, then crop each cell into that shot's keyframe
-    const { absPath, publicPath } = await persistGridImage(id, gridUrl);
-    const probe = await probeMedia(absPath);
-    if (!probe.width || !probe.height) throw new Error("无法读取九宫格图片尺寸");
-    const cells = computeGridCells(probe.width, probe.height);
-
-    const dir = join(getDataDir(), "uploads", id);
-    const saved: { shotId: number; filePath: string }[] = [];
-    for (let i = 0; i < shots.length; i++) {
-      const cell = cells[i];
-      const fileName = `asset-${shots[i].shotId}-${Date.now()}-grid.png`;
-      const outPath = join(dir, fileName);
-      await execFileAsync(ffmpegBin(), [
-        "-y",
-        "-i", absPath,
-        "-vf", `crop=${cell.w}:${cell.h}:${cell.x}:${cell.y}`,
-        "-frames:v", "1",
-        outPath,
-      ]);
-      const filePath = `/api/files/${id}/${fileName}`;
-      // Keep older takes for review/rollback while making this fresh grid cell active.
-      await db.update(assets).set({ selected: false }).where(and(eq(assets.projectId, id), eq(assets.shotId, shots[i].shotId)));
-      await db.insert(assets).values({
-        projectId: id,
-        shotId: shots[i].shotId,
-        type: "ai_generated",
-        filePath,
-        provider: providerName,
-        model,
-        prompt: `[storyboard-grid 第${i + 1}格] ${shots[i].description ?? ""}`.trim(),
-        selected: true,
-        status: "done",
-      });
-      saved.push({ shotId: shots[i].shotId, filePath });
-    }
-
-    return NextResponse.json({ gridPath: publicPath, cells: saved, count: saved.length });
+    const saved = await persistStoryboardGrid(id, taskMode, gridUrl, providerName, result.modelId, result.taskId);
+    await updateAiTaskByProviderTaskId(providerName, result.taskId, { status: "completed", resultUrls: [saved.gridPath, ...saved.cells.map(c => c.filePath)], error: null });
+    return NextResponse.json({ ...saved, taskId: result.taskId });
   } catch (error) {
+    recoveryTaskId ??= error instanceof ProviderError ? error.taskId : undefined;
     console.error("九宫格分镜生成失败:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : errText(req, "九宫格分镜生成失败", "Storyboard grid failed") },
+      { error: error instanceof Error ? error.message : errText(req, "九宫格分镜生成失败", "Storyboard grid failed"), ...(recoveryTaskId && { taskId: recoveryTaskId, recoverable: true }) },
       { status: 500 }
     );
   }

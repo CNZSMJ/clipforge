@@ -228,14 +228,14 @@ Pick one of the three routes below.
 
 ---
 
-### 4.1 Route A (easiest) — Atlas Cloud, one key for everything
+### 4.1 Route A (easiest) — fal.ai, one key for everything
 
 One key covers **script + image + video + voice-over**, so upgrading to AI films later needs no second setup.
 
-1. On the workspace, click **Start generating** — an inline card appears: "Connect Atlas Cloud and start now" (or go to **Settings → "Recommended · One key does it all"** at the top);
-2. Click **"No key? Get one free in a minute"** (or open the sign-up page directly: https://www.atlascloud.ai?ref=JPM683 ), register, copy the API key;
+1. On the workspace, click **Start generating** — an inline card appears: "Connect fal.ai and start now" (or go to **Settings → "Recommended · One key does it all"** at the top);
+2. Open https://fal.ai/dashboard/keys and create a Fal API key. Check account billing and model permissions; obtaining a key does not mean inference is free;
 3. Back in ClipForge, paste it and click **Connect & start**;
-4. The green **"Atlas Cloud connected"** message means the LLM / image / video / voice-over models are already wired up — nothing else to configure.
+4. Saving the key configures the defaults; validate the selected models separately. This is not a live generation or account-quota test.
 
 ---
 
@@ -265,7 +265,7 @@ For the technically comfortable with a decent machine: the model runs on your ow
 
 | Preset | baseUrl | Default model | Note |
 |---|---|---|---|
-| Atlas Cloud | `https://api.atlascloud.ai/v1` | `deepseek-ai/deepseek-v4-pro` | Recommended, covers the whole pipeline |
+| fal.ai | `https://fal.run/openrouter/router/openai/v1` | `google/gemini-2.5-flash` | Key authentication; account/model access required |
 | OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o` | One key, 400+ models |
 | DeepSeek | `https://api.deepseek.com` | `deepseek-v4-flash` | Cheap |
 | Kimi | `https://api.moonshot.cn/v1` | `kimi-k2.5` | |
@@ -284,7 +284,7 @@ For the technically comfortable with a decent machine: the model runs on your ow
 | Connection failed ✗ / 401 | Wrong key, or a stray space when pasting | Re-copy the key, check leading/trailing spaces |
 | 402 / insufficient balance | No credit on the platform | Top up |
 | 404 / model not found | Model name typo | Click **Read available models** and pick from the list |
-| 404 on Atlas Cloud | baseUrl points at the media gateway `…/api/v1` | The script-model field needs `https://api.atlascloud.ai/v1` (`/api/v1` only serves image/video/TTS); v0.8.94+ repairs old settings automatically |
+| Fal 404 / 422 | Incorrect endpoint or request contract | Chat uses `https://fal.run/openrouter/router/openai/v1`; media/TTS uses `https://queue.fal.run`. A read-only key probe returning 404 is inconclusive, not authentication success. |
 | Timeout | Network can't reach that platform | Switch platform, or set a proxy endpoint in the custom baseUrl field |
 
 > The test runs **server-side**, so browser CORS is never the cause. It's almost always baseUrl, key, or model name.
@@ -378,21 +378,15 @@ Free quick cut uses real stock footage. When you want the product on camera, a n
 
 ### 7.1 Money first
 
-**ClipForge itself is free and open source forever.** AI usage is billed **per second, directly by the model platform you chose** — no markup, no revenue share, we never touch your money.
+ClipForge is open source; paid model requests are billed by Fal or your selected provider. **Do not reuse the retired provider's per-second rates or resolution multipliers.** Check the exact endpoint, audio setting, duration and resolution in your own Fal account before confirming generation. When price is unknown and a spend cap is set, the film workflow requires explicit acknowledgement instead of claiming a precise quote.
 
-| Stage | Measured reference |
-|---|---|
-| Storyboard grid (one image render covering every shot) | ≈ $0.2 |
-| One-tap full film (Seedance 2.5, 12s) | ≈ $3.6 |
-| Budget tier (Seedance Mini, ~$0.04/s, 8s) | ≈ $0.3 |
-
-> Prices move; **your platform's live pricing wins**. The cost is printed on the option itself, so you know before you click.
+Reference upload failure stops before generation. An acknowledged image/video/voice task is retained for recovery; a failed status query or download must be resumed, not submitted again. A lost submission acknowledgement is an uncertain outcome: inspect the provider's task history before attempting another paid request.
 
 ### 7.2 What extra setup it needs
 
 The free path needs only the LLM key. The AI path also needs an **image model** and a **video model**:
 
-- On Atlas Cloud: already done by the single key — **nothing to do**;
+- On fal.ai: already done by the single key — **nothing to do**;
 - On other platforms: **Settings → "Platform keys"** for the key, then pick a default under the **"Image model"** and **"Video model"** tabs (model lists load at runtime once a valid key is present).
 
 If something's missing, clicking the AI option tells you exactly what to configure instead of failing halfway.
@@ -417,8 +411,8 @@ If something's missing, clicking the AI option tells you exactly what to configu
 ### 7.4 Same face in every video (identity lock)
 
 1. Sidebar → **Presenters** (or Settings → "Characters") → add a person: name, short description, **appearance in English (the more specific, the more consistent)**, voice style;
-2. Click **✨ Multi-view sheet** — one render produces front / side / back / close-up views (one render guarantees it's the same person);
-3. Select that presenter on the assets page and both the storyboard grid and the full film use the sheet as the identity anchor — **the face stays the same across shots and across videos**.
+2. Click **✨ Multi-view sheet** — one render produces front / side / back / close-up views (joint generation constrains the appearance; inspect the result);
+3. Select that presenter on the assets page and both the storyboard grid and the full film use the sheet as the identity anchor — **the reference conditions are reused across shots; the actual face still needs review**.
 
 ### 7.5 If generation fails, do I lose money?
 
@@ -504,17 +498,17 @@ Same page as [section 6](#6-step-4--download-publishing-copy-ai-labeling) — Ea
 ```bash
 # macOS / Linux
 export CLIPFORGE_BASE_URL="http://localhost:3000"
-export CLIPFORGE_LLM_BASE_URL="https://api.atlascloud.ai/v1"
+export CLIPFORGE_LLM_BASE_URL="https://fal.run/openrouter/router/openai/v1"
 export CLIPFORGE_LLM_API_KEY="sk-your-key"
-export CLIPFORGE_LLM_MODEL="deepseek-ai/deepseek-v4-pro"
+export CLIPFORGE_LLM_MODEL="google/gemini-2.5-flash"
 ```
 
 ```powershell
 # Windows PowerShell
 $env:CLIPFORGE_BASE_URL="http://localhost:3000"
-$env:CLIPFORGE_LLM_BASE_URL="https://api.atlascloud.ai/v1"
+$env:CLIPFORGE_LLM_BASE_URL="https://fal.run/openrouter/router/openai/v1"
 $env:CLIPFORGE_LLM_API_KEY="sk-your-key"
-$env:CLIPFORGE_LLM_MODEL="deepseek-ai/deepseek-v4-pro"
+$env:CLIPFORGE_LLM_MODEL="google/gemini-2.5-flash"
 ```
 
 Common commands:
@@ -554,9 +548,9 @@ Add to your MCP config (Claude Desktop: `claude_desktop_config.json`; Cursor: `~
       "args": ["/absolute/path/clipforge/mcp/clipforge-mcp.mjs"],
       "env": {
         "CLIPFORGE_BASE_URL": "http://localhost:3000",
-        "CLIPFORGE_LLM_BASE_URL": "https://api.atlascloud.ai/v1",
+        "CLIPFORGE_LLM_BASE_URL": "https://fal.run/openrouter/router/openai/v1",
         "CLIPFORGE_LLM_API_KEY": "sk-...",
-        "CLIPFORGE_LLM_MODEL": "deepseek-ai/deepseek-v4-pro"
+        "CLIPFORGE_LLM_MODEL": "google/gemini-2.5-flash"
       }
     }
   }
@@ -593,7 +587,7 @@ Then just say "make a vertical product video from this link with ClipForge". Ful
 | "No LLM configured — add an API key in Settings" | No script key | See [section 4](#4-step-2--add-one-key-for-script-writing-the-only-required-setup) |
 | "Script generation failed. Check your LLM settings" | Bad key / no credit / wrong model name | Settings → Script model → **Test connection** for the real error |
 | "No default image model configured" | AI path missing an image model | Settings → **Image model** → pick a default |
-| "No image/video model configured yet" | AI film missing models | Pick one under **Image model** and **Video model** (or connect Atlas with one key) |
+| "No image/video model configured yet" | AI film missing models | Pick one under **Image model** and **Video model** (or configure a Fal key) |
 | Model dropdown is empty | That platform's key is missing or invalid | Fill the key under **Platform keys**; the model list appears automatically |
 
 ### 11.3 Generation / output

@@ -1,3 +1,4 @@
+import { withLocalCors, localCorsPreflight } from "@/lib/local-cors";
 import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { extname, join } from "path";
@@ -35,7 +36,7 @@ function parseConfig(value: FormDataEntryValue | null): LLMConfig | null {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   let form: FormData;
   try {
     form = await req.formData();
@@ -109,3 +110,7 @@ export async function POST(req: NextRequest) {
     await rm(workingDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
+
+// Route-local CORS keeps large request bodies out of Next proxy buffering.
+export const OPTIONS = localCorsPreflight;
+export const POST = withLocalCors(handlePOST);

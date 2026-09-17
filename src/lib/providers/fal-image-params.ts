@@ -25,9 +25,6 @@ const PRESET_RATIOS: ReadonlyArray<[string, number]> = [
 
 const STD_PRESETS = ['square_hd', 'square', 'portrait_4_3', 'portrait_16_9', 'landscape_4_3', 'landscape_16_9']
 
-/** quality enum shared by the gpt-image-2 / 2.5 endpoints */
-const GPT_QUALITY = ['auto', 'low', 'medium', 'high', 'xhigh', 'max']
-
 export interface FalImageSpec {
   /** Reference-image field. Absent ⇒ the endpoint is text-to-image only. */
   referenceField?: 'image_url' | 'image_urls'
@@ -48,6 +45,8 @@ export interface FalImageSpec {
   guidanceScale?: boolean
   steps?: boolean
   numImages?: boolean
+  maxImages?: number
+  maxSteps?: number
 }
 
 const GPT25 = (referenceField?: 'image_urls', requiresReference?: boolean): FalImageSpec => ({
@@ -57,7 +56,7 @@ const GPT25 = (referenceField?: 'image_urls', requiresReference?: boolean): FalI
   sizePresets: [...STD_PRESETS, 'auto'],
   // gpt-image wants multiples of 16, and no endpoint in the family declares a seed field
   multipleOf: 16,
-  numImages: true,
+  numImages: true, maxImages: 10,
 })
 
 export const FAL_IMAGE_SPECS: Record<string, FalImageSpec> = {
@@ -65,28 +64,31 @@ export const FAL_IMAGE_SPECS: Record<string, FalImageSpec> = {
   'openai/gpt-image-2.5/flare/text-to-image': GPT25(),
   'openai/gpt-image-2.5/sunburst/edit': GPT25('image_urls', true),
   'openai/gpt-image-2.5/flare/edit': GPT25('image_urls', true),
-  'openai/gpt-image-2': GPT25(),
-  'openai/gpt-image-2/edit': GPT25('image_urls', true),
+  'openai/gpt-image-2': { ...GPT25(), maxImages: 4 },
+  'openai/gpt-image-2/edit': { ...GPT25('image_urls', true), maxImages: 4 },
 
   'fal-ai/gpt-image-1.5': {
     sizePresets: ['1024x1024', '1536x1024', '1024x1536'],
+    numImages: true,
   },
+  'fal-ai/gpt-image-1.5/edit': { referenceField: 'image_urls', requiresReference: true, sizePresets: ['1024x1024', '1536x1024', '1024x1536'], numImages: true },
 
+  'fal-ai/bytedance/seedream/v5/lite/text-to-image': { sizeObject: true, sizePresets: [...STD_PRESETS, 'auto_2K', 'auto_3K', 'auto_4K'], maxSide: 4096, numImages: true, maxImages: 6 },
   'fal-ai/bytedance/seedream/v5/lite/edit': {
     referenceField: 'image_urls',
     requiresReference: true,
     sizeObject: true,
     sizePresets: [...STD_PRESETS, 'auto_2K', 'auto_3K', 'auto_4K'],
-    numImages: true,
+    numImages: true, maxImages: 6,
   },
 
   'fal-ai/flux/schnell': {
     sizeObject: true, sizePresets: STD_PRESETS,
-    seed: true, steps: true, guidanceScale: true, numImages: true,
+    seed: true, steps: true, maxSteps: 12, guidanceScale: true, numImages: true,
   },
   'fal-ai/flux/dev': {
     sizeObject: true, sizePresets: STD_PRESETS,
-    seed: true, steps: true, guidanceScale: true, numImages: true,
+    seed: true, steps: true, maxSteps: 50, guidanceScale: true, numImages: true,
   },
   'fal-ai/flux-pro/v1.1': {
     sizeObject: true, sizePresets: STD_PRESETS,
@@ -188,6 +190,8 @@ function sizeObjectFor(
     const scale = Math.sqrt(spec.maxArea / (w * h))
     w = round(w * scale)
     h = round(h * scale)
+    const step = spec.multipleOf ?? 1
+    while (w * h > spec.maxArea) { if (w >= h) w -= step; else h -= step }
   }
   return { width: w, height: h }
 }
@@ -210,6 +214,10 @@ export function buildFalImageRequest(options: {
   referenceImageUrls?: string[]
   extra?: Record<string, unknown>
 }): { modelId: string; body: Record<string, unknown> } {
+  for (const value of [options.width, options.height, options.count]) {
+    if (value != null && (!Number.isFinite(value) || value <= 0)) throw new Error('图片尺寸和数量必须是正数')
+  }
+  if (options.seed != null && !Number.isSafeInteger(options.seed)) throw new Error('seed 必须是安全整数')
   const refs = options.referenceImageUrls?.length
     ? options.referenceImageUrls
     : options.referenceImageUrl
@@ -218,8 +226,15 @@ export function buildFalImageRequest(options: {
 
   // Route to the sibling that fits what we have BEFORE validating: a B-roll shot carries no
   // reference and must never be submitted to an /edit route.
+  if (refs?.some((url) => typeof url !== 'string' || !/^(https?:\/\/|data:image\/)/i.test(url))) throw new Error('参考图必须是上传完成后的 URL')
   const modelId = falImageSibling(options.modelId, refs != null) ?? options.modelId
   const spec = getFalImageSpec(modelId)
+  const count = options.count ?? 1
+  const maxCount = spec.numImages ? spec.maxImages ?? 4 : 1
+  if (!Number.isInteger(count) || count > maxCount) throw new Error(`该端点每次最多生成 ${maxCount} 张图片`)
+  if (refs && refs.length > 16) throw new Error('参考图超过上限，不能静默丢弃身份或商品条件')
+  if ((options.width == null) !== (options.height == null)) throw new Error('图片宽高必须同时指定')
+  if (refs && spec.referenceField === 'image_url' && refs.length > 1) throw new Error('该模型仅支持一张参考图，无法保留当前多参考条件')
   const w = options.width ?? 0
   const h = options.height ?? 0
 
@@ -253,8 +268,18 @@ export function buildFalImageRequest(options: {
   if (spec.numImages) body.num_images = options.count ?? 1
   if (spec.seed && options.seed != null) body.seed = options.seed
   if (spec.negativePrompt && options.negativePrompt) body.negative_prompt = options.negativePrompt
-  if (spec.guidanceScale && options.guidanceScale != null) body.guidance_scale = options.guidanceScale
-  if (spec.steps && options.steps != null) body.num_inference_steps = options.steps
+  if (spec.guidanceScale && options.guidanceScale != null) {
+    if (!Number.isFinite(options.guidanceScale) || options.guidanceScale < 1 || options.guidanceScale > 20) throw new Error('guidanceScale 必须在 1 到 20 之间')
+    body.guidance_scale = options.guidanceScale
+  }
+  if (spec.steps && options.steps != null) {
+    if (!Number.isInteger(options.steps) || options.steps < 1) throw new Error('steps 必须是正整数')
+    body.num_inference_steps = Math.min(options.steps, spec.maxSteps ?? 50)
+  }
 
-  return { modelId, body: { ...body, ...options.extra } }
+  const extra = { ...options.extra }
+  for (const key of ['prompt', 'image_url', 'image_urls', 'image_size', 'num_images', 'seed', 'num_inference_steps', 'guidance_scale', 'negative_prompt', 'sync_mode', 'max_images']) delete extra[key]
+  // Queue results must remain retrievable; sync_mode=true removes them from request history.
+  // Keep provider defaults for sync_mode=false and max_images=1 rather than allowing hidden fan-out.
+  return { modelId, body: { ...extra, ...body } }
 }

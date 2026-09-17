@@ -229,7 +229,7 @@ function ClipForgeContent({ ctx }: CanvasNodeContentProps) {
                     <span style={labelStyle}>ClipForge 地址</span>
                     <input style={inputStyle} value={cfg.base} onChange={(e) => saveCfg({ base: e.target.value })} placeholder="http://localhost:3000" />
                     <span style={labelStyle}>LLM 接口（OpenAI 兼容，用于写脚本）</span>
-                    <input style={inputStyle} value={cfg.llmBaseUrl} onChange={(e) => saveCfg({ llmBaseUrl: e.target.value })} placeholder="https://api.atlascloud.ai/v1" />
+                    <input style={inputStyle} value={cfg.llmBaseUrl} onChange={(e) => saveCfg({ llmBaseUrl: e.target.value })} placeholder="https://fal.run/openrouter/router/openai/v1" />
                     <input style={inputStyle} type="password" value={cfg.llmApiKey} onChange={(e) => saveCfg({ llmApiKey: e.target.value })} placeholder="API Key" />
                     <input style={inputStyle} value={cfg.llmModel} onChange={(e) => saveCfg({ llmModel: e.target.value })} placeholder="模型 ID" />
                 </div>

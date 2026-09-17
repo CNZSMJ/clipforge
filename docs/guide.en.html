@@ -50,7 +50,7 @@
     { "@type": "Question", "name": "Can ClipForge produce a video completely free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The free quick-cut path uses free stock footage, free Microsoft Edge TTS voice-over and local FFmpeg composition — no image or video API key needed — producing an unwatermarked 1080p vertical video in about 2–3 minutes. Only script writing needs one LLM key (about $0.0002 per call on DeepSeek)." } },
     { "@type": "Question", "name": "How much does an AI-generated film cost?", "acceptedAnswer": { "@type": "Answer", "text": "Billed by the second to your own model key: the storyboard grid costs about $0.18 per generation, and a 12-second Seedance 2.5 film measured about $3.60; cheaper tiers (Seedance Mini, ~$0.04/s) bring an 8-second clip to about $0.31. The price is printed on the option and only one confirmed click spends money." } },
     { "@type": "Question", "name": "Does the talking-presenter format need a real person?", "acceptedAnswer": { "@type": "Answer", "text": "No. AI generates a natural-looking presenter who speaks your script verbatim with synced lips; you can also build presenters in the library with 4-view identity sheets that lock the same face across shots and videos." } },
-    { "@type": "Question", "name": "Which AI platforms are supported?", "acceptedAnswer": { "@type": "Answer", "text": "One interface aggregates 30+ models across 7 platforms: Atlas Cloud (recommended — one key covers script, image, video and voice), Volcengine Ark, fal.ai, OpenAI, DeepSeek and more, including GPT Image 2, the full Seedance 2.5/2.0 family and Kling 3.0; custom model IDs are supported too." } }
+    { "@type": "Question", "name": "Which AI platforms are supported?", "acceptedAnswer": { "@type": "Answer", "text": "One interface aggregates 30+ models across 7 platforms: fal.ai (recommended — one key covers script, image, video and voice), Volcengine Ark, fal.ai, OpenAI, DeepSeek and more, including GPT Image 2, the supported Seedance 2.5 endpoints and Kling 3.0; custom model IDs are supported too." } }
   ]
 }
 </script>
@@ -146,12 +146,12 @@ cd clipforge &amp;&amp; pnpm install &amp;&amp; pnpm dev</code></pre>
   <li>Hit <b>Start</b> — script → free stock visuals → voice-over &amp; compose, all behind one progress card, landing on the export page.</li>
 </ol>
 <figure><img class="shot" src="screenshots/01-home.en.png" alt="ClipForge studio screenshot: product photo upload, free quick cut vs AI-generated film fork, four commerce formats" loading="lazy"><figcaption>The studio: input + generation fork + format, three rows total</figcaption></figure>
-<div class="tip"><p>The only prerequisite: one <b>LLM key</b> for script writing (any OpenAI-protocol platform; ~$0.0002 per call on DeepSeek. <a href="https://www.atlascloud.ai?ref=JPM683" target="_blank" rel="noopener">Atlas Cloud</a> is recommended — the same key later covers AI generation too). The page prompts inline on first use.</p></div>
+<div class="tip"><p>The only prerequisite: one <b>LLM key</b> for script writing (any OpenAI-protocol platform; ~$0.0002 per call on DeepSeek. <a href="https://fal.ai/dashboard/keys" target="_blank" rel="noopener">fal.ai</a> is recommended — the same key later covers AI generation too). The page prompts inline on first use.</p></div>
 
 <h2 id="keys">3. One key to unlock AI generation</h2>
 <p>ClipForge is open-source BYOK: <b>the software is free forever; AI usage is billed by your chosen model platform</b> — no markup, no middleman. One interface aggregates 30+ models across 7 platforms:</p>
 <ul>
-  <li><b><a href="https://www.atlascloud.ai?ref=JPM683" target="_blank" rel="noopener">Atlas Cloud</a> (recommended)</b>: one key covers script + image (GPT Image 2) + video (full Seedance 2.5/2.0 family) + voice; paste it under <b>Settings → Platform keys</b>;</li>
+  <li><b><a href="https://fal.ai/dashboard/keys" target="_blank" rel="noopener">fal.ai</a> (recommended)</b>: one key covers script + image (GPT Image 2) + video (supported Seedance 2.5 endpoints) + voice; paste it under <b>Settings → Platform keys</b>;</li>
   <li>Volcengine Ark, fal.ai, OpenAI, DeepSeek and more are supported — pick defaults under <b>Settings → Image model / Video model</b>;</li>
   <li>Model lists refresh at runtime, and custom model IDs are supported.</li>
 </ul>
@@ -247,7 +247,7 @@ cd clipforge &amp;&amp; pnpm install &amp;&amp; pnpm dev</code></pre>
   <tbody>
     <tr><td>"No LLM configured — add an API key in Settings"</td><td>No script key yet</td><td>Settings → <b>Script model</b> → click a preset, paste the key, hit <b>Test connection</b></td></tr>
     <tr><td>Test connection fails / 401</td><td>Wrong key or a stray space</td><td>Re-copy it; 402 means no credit, 404 means a wrong model name (use <b>Read available models</b>)</td></tr>
-    <tr><td>"No image/video model configured yet"</td><td>AI path missing models</td><td>Pick defaults under <b>Image model</b> and <b>Video model</b>, or connect Atlas with one key</td></tr>
+    <tr><td>"No image/video model configured yet"</td><td>AI path missing models</td><td>Pick defaults under <b>Image model</b> and <b>Video model</b>, or connect Fal with one key</td></tr>
     <tr><td>Model dropdown is empty</td><td>That platform's key is missing/invalid</td><td>Fill it under <b>Platform keys</b> — models appear automatically</td></tr>
     <tr><td>Product link not parsed</td><td>Site blocks scraping</td><td>Use <b>Upload product photo</b> instead</td></tr>
     <tr><td>Video has no sound</td><td>Voice-over is off</td><td>Video page → <b>Voiceover (TTS)</b> → enable auto voice-over</td></tr>

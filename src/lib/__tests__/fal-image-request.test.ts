@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { vi } from "vitest";
 import { buildFalImageRequest, falImageSibling, getFalImageSpec, nearestFalImagePreset } from "@/lib/providers/fal-image-params";
 import { FalAIProvider } from "@/lib/providers/fal-ai";
@@ -8,6 +8,8 @@ import { FalAIProvider } from "@/lib/providers/fal-ai";
  * https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=<model>.
  * The contract under test: we never send a field outside this set.
  */
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
 const DECLARED: Record<string, string[]> = {
   "openai/gpt-image-2.5/sunburst/edit": ["sync_mode", "image_size", "quality", "prompt", "output_format", "background", "image_urls", "mask_url", "output_compression", "num_images"],
   "openai/gpt-image-2.5/sunburst/text-to-image": ["sync_mode", "image_size", "quality", "prompt", "output_format", "background", "output_compression", "num_images"],
@@ -150,15 +152,14 @@ describe("fal image request building", () => {
 describe("platform-rejected submissions", () => {
   it("surfaces fal's stored 422 instead of a vague result error", async () => {
     const provider = new FalAIProvider({ name: "fal-ai", apiKey: "k", baseUrl: "https://example.com" });
-    vi.spyOn(provider as unknown as { request: (path: string) => Promise<unknown> }, "request").mockImplementation(
-      async (path: string) =>
-        path.endsWith("/status")
-          ? { status: "COMPLETED", request_id: "r1" }
-          : { detail: [{ type: "missing", loc: ["body", "image_urls"], msg: "Field required" }] }
-    );
-    await expect(
-      provider.getTaskStatus("openai/gpt-image-2.5/sunburst/edit::r1")
-    ).rejects.toThrow(/平台拒绝了这次请求/);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => Response.json(
+      path.endsWith("/status") ? { status: "COMPLETED", request_id: "r1" }
+        : { detail: [{ type: "missing", loc: ["body", "image_urls"], msg: "Field required" }] },
+      { status: path.endsWith("/status") ? 200 : 422 },
+    )));
+    const status = await provider.getTaskStatus("openai/gpt-image-2.5/sunburst/edit::r1");
+    expect(status.status).toBe("failed");
+    expect(status.error).toContain("image_urls");
   });
 
   it("falImageSibling only rewrites known pairs", () => {
@@ -175,13 +176,13 @@ describe("generateImage submits to the RESOLVED endpoint", () => {
   it("posts to the text-to-image sibling and keeps its task id when there is no reference", async () => {
     const provider = new FalAIProvider({ name: "fal-ai", apiKey: "k", baseUrl: "https://example.com" });
     const paths: string[] = [];
-    vi.spyOn(provider as unknown as { request: (p: string, i?: { method?: string }) => Promise<unknown> }, "request")
-      .mockImplementation(async (path: string, init?: { method?: string }) => {
-        paths.push(path);
-        if (init?.method === "POST") return { request_id: "r1" };
-        if (path.endsWith("/status")) return { status: "COMPLETED", request_id: "r1" };
-        return { images: [{ url: "https://cdn.example/out.png" }] };
-      });
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      paths.push(path);
+      if (init?.method === "POST") return Response.json({ request_id: "r1" });
+      if (path.endsWith("/status")) return Response.json({ status: "COMPLETED", request_id: "r1" });
+      return Response.json({ images: [{ url: "https://cdn.example/out.png" }] });
+    }));
     const result = await provider.generateImage({
       modelId: "openai/gpt-image-2.5/sunburst/edit",
       mode: "text-to-image",
@@ -197,15 +198,15 @@ describe("generateImage submits to the RESOLVED endpoint", () => {
   it("posts to the edit sibling when a reference is supplied", async () => {
     const provider = new FalAIProvider({ name: "fal-ai", apiKey: "k", baseUrl: "https://example.com" });
     let submitted: { path: string; body?: Record<string, unknown> } | undefined;
-    vi.spyOn(provider as unknown as { request: (p: string, i?: { method?: string; body?: Record<string, unknown> }) => Promise<unknown> }, "request")
-      .mockImplementation(async (path: string, init?: { method?: string; body?: Record<string, unknown> }) => {
-        if (init?.method === "POST") {
-          submitted = { path, body: init.body };
-          return { request_id: "r2" };
-        }
-        if (path.endsWith("/status")) return { status: "COMPLETED", request_id: "r2" };
-        return { images: [{ url: "https://cdn.example/out2.png" }] };
-      });
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (init?.method === "POST") {
+        submitted = { path, body: JSON.parse(String(init.body)) };
+        return Response.json({ request_id: "r2" });
+      }
+      if (path.endsWith("/status")) return Response.json({ status: "COMPLETED", request_id: "r2" });
+      return Response.json({ images: [{ url: "https://cdn.example/out2.png" }] });
+    }));
     await provider.generateImage({
       modelId: "openai/gpt-image-2.5/sunburst/text-to-image",
       mode: "image-to-image",

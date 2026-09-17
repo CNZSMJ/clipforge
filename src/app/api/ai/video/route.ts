@@ -1,7 +1,11 @@
+import type { VideoOptions } from "@/lib/providers/types";
+import { generationOptions, stageReferences } from "@/lib/generation-input";
+import { buildFalVideoRequest } from "@/lib/providers/fal-ai";
+import { effectiveFalDuration, getFalVideoSpec } from "@/lib/providers/fal-video-params";
 import { NextRequest, NextResponse } from "next/server";
 import { createProvider } from "@/lib/providers";
 import { ProviderError } from "@/lib/providers/base";
-import { toProviderImage, resolveUploadFilePath } from "@/lib/remote-image";
+import { toProviderImage } from "@/lib/remote-image";
 import { apiError, errText } from "@/lib/api-error";
 import { recordAiTask, updateAiTask } from "@/lib/ai-tasks";
 import { sanitizeGenerationControlSummary } from "@/lib/video-repair-plan";
@@ -13,81 +17,51 @@ import { sanitizeGenerationControlSummary } from "@/lib/video-repair-plan";
 // the error response carries the task ID and the row stays recoverable ("unknown"),
 // so the client can resume via /api/ai/video/task instead of paying again.
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return apiError(req, "请求体必须是 JSON 对象", "Request body must be a JSON object");
+  }
   const { provider: providerName, model, prompt, imageUrl, lastImageUrl, mode, apiKey, baseUrl, options, projectId, shotId, referenceVideoUrls, referenceImageUrls, referenceAudioUrls } = body;
   const controlPlan = sanitizeGenerationControlSummary(body.controlPlan);
+  if ((prompt != null && typeof prompt !== "string") || (baseUrl != null && typeof baseUrl !== "string")
+    || (projectId != null && (typeof projectId !== "string" || !/^[a-zA-Z0-9-]+$/.test(projectId)))
+    || (shotId != null && (!Number.isSafeInteger(shotId) || shotId < 0))) {
+    return apiError(req, "无效的提示词或任务上下文", "Invalid prompt or task context");
+  }
 
-  if (!providerName || !model) {
+  if ([providerName, model].some(v => typeof v !== "string" || !v.trim())) {
     return apiError(req, "缺少必要参数", "Missing required parameters");
   }
 
-  if (!apiKey) {
+  if (typeof apiKey !== "string" || !apiKey.trim()) {
     return apiError(req, "缺少 API Key，请先在设置中配置对应平台", "Missing API Key, please configure the corresponding platform in settings first");
   }
 
   try {
     const provider = createProvider({ name: providerName, apiKey, baseUrl });
 
-    // Staged on the provider's CDN so the model receives a URL, per fal's file-input contract.
-    const firstFrameUrl = await toProviderImage(imageUrl, provider);
-    // Keyframe chaining: pin the clip's last frame to the next
-    // shot's keyframe so the transition is generated inside the clip (seamless on hard concat)
-    const lastFrameUrl = lastImageUrl ? await toProviderImage(lastImageUrl, provider) : undefined;
-
-    // Reference-to-video inputs (viral replication): reference IMAGES may travel as Base64
-    // like first frames, but reference VIDEOS must be real URLs — local /api/files paths
-    // are uploaded to the provider's temporary hosting first (fal storage, see uploadLocalMedia)
-    let refVideos: string[] | undefined;
-    let refImages: string[] | undefined;
-    let refAudios: string[] | undefined;
-    if (Array.isArray(referenceVideoUrls) && referenceVideoUrls.length > 0) {
-      refVideos = [];
-      for (const ref of (referenceVideoUrls as unknown[]).slice(0, 3)) {
-        if (typeof ref !== "string" || !ref) continue;
-        if (ref.startsWith("http")) {
-          refVideos.push(ref);
-          continue;
-        }
-        const localPath = resolveUploadFilePath(ref);
-        if (!localPath || !provider.uploadLocalMedia) {
-          return apiError(req, "参考视频不可用：需要可访问的视频地址", "Reference video unavailable: a reachable video URL is required");
-        }
-        refVideos.push(await provider.uploadLocalMedia(localPath));
-      }
-    }
-    if (Array.isArray(referenceImageUrls) && referenceImageUrls.length > 0) {
-      const imageRefs = (referenceImageUrls as unknown[]).filter((ref): ref is string => typeof ref === "string" && Boolean(ref)).slice(0, 9);
-      refImages = (await Promise.all(imageRefs.map((u) => toProviderImage(u, provider)))).filter(
-        (u): u is string => !!u
-      );
-    }
-    if (Array.isArray(referenceAudioUrls) && referenceAudioUrls.length > 0) {
-      refAudios = [];
-      for (const ref of (referenceAudioUrls as unknown[]).slice(0, 3)) {
-        if (typeof ref !== "string" || !ref) continue;
-        if (ref.startsWith("http")) {
-          refAudios.push(ref);
-          continue;
-        }
-        const localPath = resolveUploadFilePath(ref);
-        if (!localPath || !provider.uploadLocalMedia) {
-          return apiError(req, "参考音频不可用：需要可访问的音频地址", "Reference audio unavailable: a reachable audio URL is required");
-        }
-        refAudios.push(await provider.uploadLocalMedia(localPath));
-      }
-    }
-
-    const videoOptions = {
+    const opts = generationOptions(options);
+    const [firstFrameUrl, lastFrameUrl, refImages, refVideos, refAudios] = await Promise.all([
+      toProviderImage(imageUrl, provider), toProviderImage(lastImageUrl, provider),
+      stageReferences(referenceImageUrls, 9, "referenceImageUrls", provider),
+      stageReferences(referenceVideoUrls, 3, "referenceVideoUrls", provider),
+      stageReferences(referenceAudioUrls, 3, "referenceAudioUrls", provider),
+    ]);
+    const videoOptions: VideoOptions = {
+      ...opts,
       modelId: model,
       mode: mode || (imageUrl ? "image-to-video" : "text-to-video"),
       prompt: prompt || "",
-      firstFrameUrl,
-      ...(lastFrameUrl && { lastFrameUrl }),
-      ...(refVideos?.length && { referenceVideoUrls: refVideos }),
-      ...(refImages?.length && { referenceImageUrls: refImages }),
-      ...(refAudios?.length && { referenceAudioUrls: refAudios }),
-      ...options,
+      firstFrameUrl, lastFrameUrl,
+      referenceImageUrls: refImages,
+      referenceVideoUrls: refVideos,
+      referenceAudioUrls: refAudios,
+      // The legacy single reference also has to pass staging, not escape through options.
+      referenceVideoUrl: opts.referenceVideoUrl == null ? undefined : await toProviderImage(String(opts.referenceVideoUrl), provider),
     };
+    const resolved = providerName === "fal-ai" ? buildFalVideoRequest(videoOptions) : undefined;
+    const resolvedSpec = resolved ? getFalVideoSpec(resolved.modelId) : undefined;
+    const actualDuration = resolvedSpec ? effectiveFalDuration(resolvedSpec, videoOptions.duration, videoOptions.fps) : videoOptions.duration;
 
     // legacy single-phase path for providers without two-phase task support
     if (!provider.submitVideoTask || !provider.waitForTask) {
@@ -126,14 +100,14 @@ export async function POST(req: NextRequest) {
           { status: 502 }
         );
       }
-      await updateAiTask(rowId, { status: "completed", resultUrls: videoUrls, error: null });
+      await updateAiTask(rowId, { status: "download_pending", resultUrls: videoUrls, error: null });
       return NextResponse.json({
         taskId,
         videoUrls,
         modelId,
-        duration: videoOptions.duration,
+        duration: actualDuration,
         processingTime: Date.now() - startTime,
-        hasAudio: videoOptions.audioEnabled ?? false,
+        hasAudio: Boolean(resolvedSpec?.nativeAudio || videoOptions.audioEnabled),
       });
     } catch (error) {
       // definitive provider-side failure vs. lost contact (task may still be running & billed)

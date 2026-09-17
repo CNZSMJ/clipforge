@@ -603,15 +603,21 @@ export default function ScriptPage() {
       // multi-view sheet on demand: a presenter picked at creation but never "sheeted" gets their
       // 2x2 four-view reference generated right here (one square generation, physically the same
       // person) and saved back to the library — identity stays locked across this film AND future
-      // ones. Needs an appearance description; failure just falls back to today's no-sheet path.
+      // ones. A selected presenter must not silently disappear when this prerequisite fails.
       if (presenter && !sheet && presenter.appearance?.trim()) {
         setAiFilmStage(t("aiFilmSheet"));
         try {
+          const recoveryKey = `clipforge:sheet:${presenter.id}`;
+          const signature = JSON.stringify([presenter.name, presenter.appearance, imgTarget.provider, imgTarget.model]);
+          let pending: { taskId?: string; signature?: string } = {};
+          try { pending = JSON.parse(localStorage.getItem(recoveryKey) || "{}"); } catch { /* invalid saved metadata */ }
+          const taskId = pending.signature === signature ? pending.taskId : undefined;
           const sheetRes = await fetch("/api/characters/sheet", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               appearance: presenter.appearance,
               name: presenter.name,
+              ...(taskId && { taskId }),
               provider: imgTarget.provider,
               model: imgTarget.model,
               apiKey: imgTarget.apiKey,
@@ -620,14 +626,21 @@ export default function ScriptPage() {
             }),
           });
           const sheetData = await sheetRes.json().catch(() => ({}));
-          if (sheetRes.ok && sheetData.url) {
+          if (!sheetRes.ok || !sheetData.url) {
+            if (sheetData.taskId && sheetData.recoverable) localStorage.setItem(recoveryKey, JSON.stringify({ signature, taskId: sheetData.taskId }));
+            else if (sheetData.recoverable === false) localStorage.removeItem(recoveryKey);
+            throw new Error(sheetData.error || "定妆图未保存，请在任务中心恢复原任务");
+          }
+          localStorage.removeItem(recoveryKey);
+          if (sheetData.url) {
             sheet = sheetData.url as string;
             updateCharacter(presenter.id, { referenceImages: [sheet, ...(presenter.referenceImages ?? []).slice(1)] });
           }
-        } catch {
-          /* sheet is an upgrade, not a dependency — the grid still locks identity within this film */
+        } catch (error) {
+          throw new Error(`已选主播的定妆图未就绪，已暂停后续付费步骤：${error instanceof Error ? error.message : String(error)}`);
         }
       }
+      if (presenterParam && !sheet) throw new Error("已选主播没有可用定妆图；请先在主播库生成或恢复定妆任务，再制作整片");
       const productRef = projectMeta?.productImages?.[0];
       // 1) storyboard grid: ONE image generation renders every shot as a keyframe (identity locked)
       setAiFilmStage(t("aiFilmGrid"));

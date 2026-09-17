@@ -12,34 +12,22 @@ import type {
   VideoOptions,
   VideoResult,
   TaskStatus,
-  TaskStatusEnum,
   Model,
   MediaType,
 } from './types'
+import { submitFalTask, readFalTask } from './fal-queue'
+import { uploadFalFile } from './fal-storage'
+export { falQueueAppPath } from './fal-queue'
 import { buildFalImageRequest } from './fal-image-params'
 import {
   getFalVideoSpec,
   falFrameSibling,
   nearestFalAspectRatio,
-  nearestFalDuration,
+  effectiveFalDuration,
+  falReferenceSibling,
   nearestFalResolution,
   type FalVideoSpec,
 } from './fal-video-params'
-
-// ==================== fal.ai API response types ====================
-
-interface FalSubmitResponse {
-  request_id: string
-  [key: string]: unknown
-}
-
-interface FalStatusResponse {
-  request_id: string
-  status: string
-  progress?: number
-  response_url?: string
-  [key: string]: unknown
-}
 
 interface FalResultResponse {
   images?: Array<{ url: string; width?: number; height?: number }>
@@ -48,76 +36,6 @@ interface FalResultResponse {
   seed?: number
   timings?: { inference?: number }
   [key: string]: unknown
-}
-
-/**
- * Exact queue URLs fal returned for a request id, captured at submit time.
- *
- * fal's response/status URLs are authoritative — for `fal-ai/flux/schnell` fal answers with
- * `fal-ai/flux/requests/<id>`, i.e. the app path, not the endpoint path. They are handed back
- * once, at submit, so remember them for the life of the process; a restarted server falls back to
- * the derivation below, which is correct for every app fal currently exposes.
- */
-const falQueueUrls = new Map<string, { statusUrl?: string; responseUrl?: string }>()
-
-function rememberFalQueueUrls(requestId: string, payload: { status_url?: unknown; response_url?: unknown }): void {
-  if (!requestId) return
-  falQueueUrls.set(requestId, {
-    statusUrl: typeof payload.status_url === 'string' ? payload.status_url : undefined,
-    responseUrl: typeof payload.response_url === 'string' ? payload.response_url : undefined,
-  })
-  if (falQueueUrls.size > 500) {
-    // bounded: drop the oldest entries so a long-lived process cannot grow without limit
-    for (const key of falQueueUrls.keys()) {
-      falQueueUrls.delete(key)
-      if (falQueueUrls.size <= 400) break
-    }
-  }
-}
-
-// ==================== request building ====================
-
-/** fal's storage control plane (upload staging) is a separate host from the model queue. */
-const FAL_STORAGE_BASE = 'https://rest.alpha.fal.ai'
-
-const MIME_BY_EXTENSION: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.mp4': 'video/mp4',
-  '.mov': 'video/quicktime',
-  '.webm': 'video/webm',
-  '.mp3': 'audio/mpeg',
-  '.wav': 'audio/wav',
-  '.m4a': 'audio/mp4',
-  '.aac': 'audio/aac',
-}
-
-/**
- * fal's queue endpoints live under the APP path, not the full endpoint id.
- *
- * A submit to `fal-ai/flux/schnell` answers:
- *   status_url = https://queue.fal.run/fal-ai/flux/requests/<id>/status
- * i.e. only the first two path segments (owner/app) are part of the request URL. Polling the full
- * endpoint id answers 405 Method Not Allowed, which surfaced as "任务状态查询连续失败 5 次" for
- * every fal model with a variant path (nearly all of them) — the submission was billed, then
- * every poll was rejected.
- */
-export function falQueueAppPath(modelId: string): string {
-  const segments = modelId.split('/').filter(Boolean)
-  // Router-style apps own a third segment: the queue serves /workflows/<name>/requests/... and
-  // /comfy/<name>/requests/..., not /workflows/requests/... (same rule as the Go router in
-  // axiom-azimo: applicationSegments = 2, 3 for workflows/comfy).
-  const applicationSegments = segments[0] === 'workflows' || segments[0] === 'comfy' ? 3 : 2
-  return segments.slice(0, applicationSegments).join('/')
-}
-
-function mimeTypeForFile(fileName: string): string {
-  const dot = fileName.lastIndexOf('.')
-  const ext = dot === -1 ? '' : fileName.slice(dot).toLowerCase()
-  return MIME_BY_EXTENSION[ext] ?? 'application/octet-stream'
 }
 
 /**
@@ -130,67 +48,65 @@ export function buildFalVideoRequest(options: VideoOptions): {
   modelId: string
   body: Record<string, unknown>
 } {
-  // models that support audio can describe it directly in the prompt
-  let prompt = options.prompt
-  if (options.audioEnabled && options.voiceover) {
-    prompt = `${options.prompt}. The narrator says: "${options.voiceover}"`
+  for (const dimension of [options.width, options.height]) {
+    if (dimension != null && (!Number.isFinite(dimension) || dimension <= 0)) throw new Error('视频尺寸必须是正数')
   }
-
-  // remap to the sibling endpoint when the frames we have do not fit this one
-  const modelId = falFrameSibling(options.modelId, Boolean(options.firstFrameUrl)) ?? options.modelId
+  const hasReferences = Boolean(options.referenceImageUrls?.length || options.referenceVideoUrls?.length || options.referenceAudioUrls?.length || options.referenceVideoUrl)
+  const modelId = (hasReferences ? falReferenceSibling(options.modelId) : falFrameSibling(options.modelId, Boolean(options.firstFrameUrl))) ?? options.modelId
   const spec: FalVideoSpec = getFalVideoSpec(modelId)
-
-  if (options.firstFrameUrl && !spec.firstFrame) {
-    // Silently dropping the keyframe would turn an image-to-video shot into a text-to-video one
-    // that no longer matches the storyboard.
-    throw new Error(
-      `模型 ${modelId} 是文生视频端点，不接受首帧图；请改用同档位的图生视频端点（.../image-to-video）。` +
-        ' 否则这一镜会退化成纯文字生成，和分镜画面不一致。'
-    )
+  const first = options.firstFrameUrl
+  const last = options.lastFrameUrl
+  for (const url of [first, last]) if (url && (typeof url !== 'string' || !/^(https?:\/\/|data:image\/)/i.test(url))) throw new Error('首尾帧必须使用上传完成后的图片 URL')
+  if (options.seed != null && !Number.isSafeInteger(options.seed)) throw new Error('seed 必须是安全整数')
+  if (first && !spec.firstFrame) throw new Error(`模型 ${modelId} 不接受首帧图；请选择兼容端点，避免分镜一致性丢失`)
+  if (last && !spec.lastFrame) throw new Error(`模型 ${modelId} 不接受尾帧图；不能静默丢弃镜头衔接约束`)
+  if (spec.firstFrameRequired && !first) throw new Error(`模型 ${modelId} 必须提供首帧图`)
+  if (spec.lastFrameRequired && !last) throw new Error(`模型 ${modelId} 必须同时提供首帧和尾帧图`)
+  const references = [
+    [options.referenceImageUrls, spec.referenceImages, spec.maxReferenceImages, '参考图片'],
+    [options.referenceVideoUrls?.length ? options.referenceVideoUrls : options.referenceVideoUrl ? [options.referenceVideoUrl] : undefined, spec.referenceVideos, spec.maxReferenceVideos, '参考视频'],
+    [options.referenceAudioUrls, spec.referenceAudio, spec.maxReferenceAudios, '参考音频'],
+  ] as const
+  for (const [urls, field, limit, label] of references) {
+    if (!urls?.length) continue
+    if (!field) throw new Error(`模型 ${modelId} 不支持${label}；无法保证该条件，未提交付费生成`)
+    if (limit != null && urls.length > limit) throw new Error(`${label}数量 ${urls.length} 超过模型上限 ${limit}，请明确调整参考包后再提交`)
+    if (urls.some((url) => typeof url !== 'string' || !/^(https?:\/\/|data:)/i.test(url))) throw new Error(`${label}须使用上传完成后的可访问 URL`)
   }
-
-  const snappedDuration = nearestFalDuration(options.duration, spec.durations) ?? options.duration
-  // endpoints that publish min/max instead of an enum (Hailuo 3.0: 5-15s) still need a legal value
-  const duration =
-    spec.durationRange && snappedDuration != null
-      ? Math.min(Math.max(snappedDuration, spec.durationRange[0]), spec.durationRange[1])
-      : snappedDuration
-  const referenceImages = options.referenceImageUrls?.length ? options.referenceImageUrls : undefined
-  const referenceVideos = options.referenceVideoUrls?.length ? options.referenceVideoUrls : undefined
-  const referenceAudios = options.referenceAudioUrls?.length ? options.referenceAudioUrls : undefined
-
-  const body: Record<string, unknown> = {
-    prompt,
-    negative_prompt: options.negativePrompt,
-    seed: options.seed,
-    ...(spec.usesResolution && {
-      resolution: nearestFalResolution(options.width, options.height, spec.resolutions),
-    }),
-    ...(spec.usesAspectRatio && {
-      aspect_ratio: nearestFalAspectRatio(options.width, options.height),
-    }),
-    ...(duration != null && { duration: spec.durationAsString ? `${duration}s` : duration }),
-    // first/last frame: the field name is per family — never assume image_url
-    ...(options.firstFrameUrl && spec.firstFrame && { [spec.firstFrame]: options.firstFrameUrl }),
-    ...(options.lastFrameUrl && spec.lastFrame && { [spec.lastFrame]: options.lastFrameUrl }),
-    // multimodal reference packs
-    ...(referenceImages && spec.referenceImages && { [spec.referenceImages]: referenceImages }),
-    ...(referenceVideos && spec.referenceVideos && { [spec.referenceVideos]: referenceVideos }),
-    ...(referenceAudios && spec.referenceAudio && { [spec.referenceAudio]: referenceAudios }),
-    ...(spec.referenceTask && { task: spec.referenceTask }),
-    // legacy single reference video, only when the endpoint has no reference-video array
-    ...(options.referenceVideoUrl && !spec.referenceVideos && { video_url: options.referenceVideoUrl }),
-    ...(spec.audio && options.audioEnabled != null && { [spec.audio]: Boolean(options.audioEnabled) }),
-    ...(spec.usesGuidanceScale && options.guidanceScale != null && {
-      guidance_scale: options.guidanceScale,
-    }),
-    ...options.extra,
+  if (spec.referenceImages && !references.some(([urls]) => urls?.length)) throw new Error('参考生成端点缺少参考素材')
+  const nativeAudio = Boolean(spec.audio || spec.nativeAudio)
+  if (options.audioEnabled && !nativeAudio) throw new Error(`模型 ${modelId} 不支持原生对白，请在生成方案中改为后期配音`)
+  const duration = effectiveFalDuration(spec, options.duration, options.fps)
+  const body: Record<string, unknown> = { ...options.extra }
+  // No extra option may replace compiled visual/audio constraints, URLs or timelines.
+  const protectedFields = ['prompt', 'negative_prompt', 'seed', 'duration', 'resolution', 'aspect_ratio', 'image_url', 'start_image_url', 'end_image_url',
+    'image_urls', 'reference_image_urls', 'video_url', 'video_urls', 'reference_video_urls', 'audio_urls', 'reference_audio_urls',
+    'generate_audio', 'task', 'guidance_scale', 'frames_per_second', 'num_frames']
+  for (const key of protectedFields) delete body[key]
+  if (spec.allowedFields) {
+    for (const key of Object.keys(body)) if (!spec.allowedFields.includes(key)) throw new Error(`模型 ${modelId} 不支持参数 ${key}`)
   }
-
-  // drop undefined so fal never sees an explicit null it would reject
-  for (const key of Object.keys(body)) {
-    if (body[key] === undefined) delete body[key]
+  if (spec.allowedFields?.includes('prompt_optimizer') && body.prompt_optimizer == null) body.prompt_optimizer = false
+  if (spec.allowedFields?.includes('enable_prompt_expansion') && body.enable_prompt_expansion == null) body.enable_prompt_expansion = false
+  body.prompt = options.audioEnabled && options.voiceover
+    ? `${options.prompt}\nSpoken dialogue (verbatim; retain the speaker defined above): "${options.voiceover}"`
+    : options.prompt
+  if (spec.negativePrompt && options.negativePrompt) body.negative_prompt = options.negativePrompt
+  if (spec.seed && options.seed != null) body.seed = options.seed
+  if (spec.usesResolution) body.resolution = nearestFalResolution(options.width, options.height, spec.resolutions)
+  if (spec.usesAspectRatio) body.aspect_ratio = nearestFalAspectRatio(options.width, options.height, spec.aspects)
+  if (duration != null && spec.durationFormat) body.duration = spec.durationFormat === 'seconds' ? `${duration}s` : spec.durationFormat === 'string' ? String(duration) : duration
+  if (spec.frameCount && duration != null) {
+    body.frames_per_second = options.fps ?? spec.frameCount.fps
+    body.num_frames = Math.round(duration * Number(body.frames_per_second)) + 1
   }
+  if (first && spec.firstFrame) body[spec.firstFrame] = first
+  if (last && spec.lastFrame) body[spec.lastFrame] = last
+  for (const [urls, field] of references) if (urls?.length && field) body[field] = urls
+  if (spec.referenceTask) body.task = spec.referenceTask
+  if (spec.audio) body[spec.audio] = Boolean(options.audioEnabled)
+  if (spec.usesGuidanceScale && options.guidanceScale != null) body.guidance_scale = options.guidanceScale
+  for (const key of Object.keys(body)) if (body[key] === undefined) delete body[key]
 
   return { modelId, body }
 }
@@ -222,13 +138,12 @@ export class FalAIProvider extends BaseProvider {
    * The request body is derived from the endpoint's own schema — see fal-image-params.ts.
    */
   async generateImage(options: ImageOptions): Promise<ImageResult> {
-    // Build strictly from the endpoint's schema: the fal image families disagree on both the
-    // image_size shape (object vs preset vs three literal strings) and on whether seed /
-    // negative_prompt / num_images exist at all.
-    // NOTE: the resolved modelId must be used for the submit URL and the task id — the builder
-    // reroutes to a sibling endpoint (edit <-> text-to-image) and the body it produced only matches
-    // THAT endpoint. Submitting the original id with the sibling's body is what produced fal's
-    // "422 missing image_urls".
+    const { taskId } = await this.submitImageTask(options)
+    const finalStatus = await this.waitForTask(taskId, { interval: 2000 })
+    return this.requireResult(finalStatus.result) as ImageResult
+  }
+
+  async submitImageTask(options: ImageOptions): Promise<{ taskId: string; modelId: string }> {
     const { modelId, body } = buildFalImageRequest({
       modelId: options.modelId,
       prompt: options.prompt,
@@ -244,25 +159,8 @@ export class FalAIProvider extends BaseProvider {
       extra: options.extra,
     })
 
-    // submit async task
-    const submitResponse = await this.request<FalSubmitResponse>(
-      `/${modelId}`,
-      { method: 'POST', body }
-    )
-
-    // guard: submit occasionally returns no request_id; without this, taskId becomes "model::undefined",
-    // parseTaskId does not throw, but the subsequent status endpoint returns 404
-    if (!submitResponse.request_id) {
-      throw new ProviderError('未返回请求ID', 'NO_REQUEST_ID', this.name)
-    }
-    rememberFalQueueUrls(submitResponse.request_id, submitResponse as never)
-    // getTaskStatus needs the "modelId::requestId" format to locate the query endpoint; assemble it here before polling
-    const taskId = `${modelId}::${submitResponse.request_id}`
-    const finalStatus = await this.pollTaskStatus(taskId, {
-      interval: 2000,
-    })
-
-    return this.requireResult(finalStatus.result) as ImageResult
+    const taskId = await submitFalTask(this.config, modelId, body)
+    return { taskId, modelId }
   }
 
   /**
@@ -286,161 +184,24 @@ export class FalAIProvider extends BaseProvider {
    */
   async submitVideoTask(options: VideoOptions): Promise<{ taskId: string; modelId: string }> {
     const { modelId, body } = buildFalVideoRequest(options)
-    const submitResponse = await this.request<FalSubmitResponse>(`/${modelId}`, {
-      method: 'POST',
-      body,
-    })
-
-    // guard: submit occasionally returns no request_id; without this, taskId becomes "model::undefined",
-    // parseTaskId does not throw, but the subsequent status endpoint returns 404
-    if (!submitResponse.request_id) {
-      throw new ProviderError('未返回请求ID', 'NO_REQUEST_ID', this.name)
-    }
-    rememberFalQueueUrls(submitResponse.request_id, submitResponse as never)
-    // getTaskStatus needs the "modelId::requestId" format to locate the query endpoint
-    return { taskId: `${modelId}::${submitResponse.request_id}`, modelId }
+    const taskId = await submitFalTask(this.config, modelId, body)
+    return { taskId, modelId }
   }
 
-  /**
-   * Upload a local file to fal's CDN and return its public URL.
-   *
-   * fal accepts binary inputs (reference video/audio, chained frames read from the project
-   * workspace) by URL only. Per the fal Storage API: POST /storage/upload/initiate returns a
-   * short-lived signed URL plus the final CDN URL, then the bytes are PUT to the signed URL.
-   * The storage control plane lives on a different host than the model queue, so it does not go
-   * through this.request (which prefixes the queue baseUrl).
-   */
   async uploadLocalMedia(filePath: string): Promise<string> {
-    const { readFile } = await import('fs/promises')
-    const { basename } = await import('path')
-    const bytes = await readFile(filePath)
-    const fileName = basename(filePath)
-    const contentType = mimeTypeForFile(fileName)
-
-    const initiated = await fetch(`${FAL_STORAGE_BASE}/storage/upload/initiate`, {
-      method: 'POST',
-      headers: { ...this.getAuthHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content_type: contentType, file_name: fileName }),
-    })
-    if (!initiated.ok) {
-      const text = await initiated.text().catch(() => '')
-      throw new ProviderError(
-        `参考素材上传失败: ${initiated.status} ${text.slice(0, 200)}`,
-        'UPLOAD_FAILED',
-        this.name,
-        initiated.status
-      )
-    }
-    const { upload_url: uploadUrl, file_url: fileUrl } = (await initiated.json()) as {
-      upload_url?: string
-      file_url?: string
-    }
-    if (!uploadUrl || !fileUrl) {
-      throw new ProviderError('参考素材上传成功但未返回地址', 'UPLOAD_FAILED', this.name)
-    }
-
-    const put = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': contentType },
-      body: new Uint8Array(bytes),
-    })
-    if (!put.ok) {
-      const text = await put.text().catch(() => '')
-      throw new ProviderError(
-        `参考素材上传失败: ${put.status} ${text.slice(0, 200)}`,
-        'UPLOAD_FAILED',
-        this.name,
-        put.status
-      )
-    }
-    return fileUrl
+    return uploadFalFile(filePath, this.config.apiKey)
   }
 
-  /**
-   * Query task status
-   * fal.ai uses the queue API to poll status
-   */
   async getTaskStatus(taskId: string): Promise<TaskStatus> {
-    // fal.ai taskId format: "modelId::requestId"
-    const [modelId, requestId] = this.parseTaskId(taskId)
-    // Queue polling hangs off the APP path, not the full endpoint id — see falQueueAppPath.
-    const queuePath = falQueueAppPath(modelId)
-
-    const statusResponse = await this.request<FalStatusResponse>(
-      `/${queuePath}/requests/${requestId}/status`,
-      {
-        // use fal.ai status query baseUrl
-        headers: {},
-      }
-    )
-
-    const status = this.mapStatus(statusResponse.status)
-
-    const taskStatus: TaskStatus = {
-      taskId,
-      status,
-      progress: statusResponse.progress,
+    const state = await readFalTask(this.config, taskId)
+    const status: TaskStatus = {
+      taskId, status: state.status, progress: state.progress,
+      ...(state.error && { error: state.error, errorCode: 'TASK_FAILED' }),
     }
-
-    // fetch the result once the task completes
-    if (status === 'completed') {
-      // Prefer the URL fal itself handed back (at submit, or on this status response) — it is
-      // authoritative. The derived app path is the fallback.
-      const responseUrl =
-        falQueueUrls.get(requestId)?.responseUrl ||
-        (typeof statusResponse.response_url === 'string' ? statusResponse.response_url : '')
-      // Result URL candidates, in the order fal's own behaviour proves out:
-      //   1. `{app}/requests/{id}`            — what azimo's router uses and what fal returns
-      //   2. `{app}/requests/{id}/response`   — the suffix printed in fal's async-inference docs
-      //   3. the absolute response_url        — fal's authoritative pointer, when it is usable
-      const derivedPath = `/${queuePath}/requests/${requestId}`
-      const candidates: Array<() => Promise<FalResultResponse>> = [
-        () => this.request<FalResultResponse>(derivedPath),
-        () => this.request<FalResultResponse>(`${derivedPath}/response`),
-        ...(responseUrl ? [() => this.fetchAbsolute<FalResultResponse>(responseUrl)] : []),
-      ]
-      let result: FalResultResponse | undefined
-      let lastError: unknown
-      for (const attempt of candidates) {
-        try {
-          result = await attempt()
-          break
-        } catch (error) {
-          lastError = error
-        }
-      }
-      if (!result) {
-        throw new ProviderError(
-          `取回结果失败（模型 ${modelId}）：fal 的队列接口没有返回可用结果（任务 ${requestId} 状态为 COMPLETED）。` +
-            '该任务已在云端完成并计费，但结果地址不可用——请在设置里换一个生图/生视频模型后重试。' +
-            `（最后一个错误：${lastError instanceof Error ? lastError.message : String(lastError)}）`,
-          'RESULT_URL_REJECTED',
-          this.name
-        )
-      }
-      taskStatus.result = this.parseResult(taskId, result, modelId)
+    if (state.status === 'completed' && state.data) {
+      status.result = this.parseResult(taskId, state.data as FalResultResponse, state.modelId)
     }
-
-    return taskStatus
-  }
-
-  /**
-   * GET an absolute URL outside the configured baseUrl.
-   * fal answers status queries with fully-qualified response URLs; following them keeps the
-   * provider working even if the queue's path scheme changes.
-   */
-  private async fetchAbsolute<T>(url: string): Promise<T> {
-    const res = await fetch(url, { headers: { ...this.getAuthHeaders() } })
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw new ProviderError(
-        `API 请求失败: ${res.status} ${res.statusText} ${text.slice(0, 200)}`,
-        'API_ERROR',
-        this.name,
-        res.status
-      )
-    }
-    return (await res.json()) as T
+    return status
   }
 
   /**
@@ -754,36 +515,6 @@ export class FalAIProvider extends BaseProvider {
 
   // ==================== private methods ====================
 
-  /** Map fal.ai task status to unified status */
-  private mapStatus(falStatus: string): TaskStatusEnum {
-    const statusMap: Record<string, TaskStatusEnum> = {
-      IN_QUEUE: 'pending',
-      IN_PROGRESS: 'processing',
-      COMPLETED: 'completed',
-      FAILED: 'failed',
-    }
-    return statusMap[falStatus] ?? 'pending'
-  }
-
-  /**
-   * Parse a taskId
-   * fal.ai task IDs are encoded as "modelId::requestId"
-   */
-  private parseTaskId(taskId: string): [string, string] {
-    const separatorIndex = taskId.indexOf('::')
-    if (separatorIndex === -1) {
-      throw new ProviderError(
-        '无效的任务 ID 格式，应为 "modelId::requestId"',
-        'INVALID_TASK_ID',
-        this.name
-      )
-    }
-    return [
-      taskId.substring(0, separatorIndex),
-      taskId.substring(separatorIndex + 2),
-    ]
-  }
-
   /** Parse fal.ai response into the unified result format */
   private parseResult(
     taskId: string,
@@ -802,11 +533,15 @@ export class FalAIProvider extends BaseProvider {
       )
     }
 
+    const mediaUrl = (value: unknown): string => {
+      if (typeof value !== 'string' || !/^(https?:\/\/|data:image\/)/i.test(value)) throw new ProviderError('fal 返回了无效媒体地址；请恢复该任务，不要重新生成', 'PARSE_ERROR', this.name)
+      return value
+    }
     // image result
     if (result.images && result.images.length > 0) {
       return {
         taskId,
-        imageUrls: result.images.map((img) => img.url),
+        imageUrls: result.images.map((img) => mediaUrl(img?.url)),
         modelId,
         seed: result.seed,
         duration: result.timings?.inference,
@@ -817,7 +552,7 @@ export class FalAIProvider extends BaseProvider {
     if (result.video) {
       return {
         taskId,
-        videoUrls: [result.video.url],
+        videoUrls: [mediaUrl(result.video.url)],
         modelId,
         processingTime: result.timings?.inference,
       }
@@ -827,7 +562,7 @@ export class FalAIProvider extends BaseProvider {
     if (result.videos && result.videos.length > 0) {
       return {
         taskId,
-        videoUrls: result.videos.map((v) => v.url),
+        videoUrls: result.videos.map((v) => mediaUrl(v?.url)),
         modelId,
         processingTime: result.timings?.inference,
       }

@@ -229,14 +229,14 @@ pnpm dev
 
 ---
 
-### 4.1 路线 A（最省事）：Atlas Cloud 一个 Key 全搞定
+### 4.1 路线 A（最省事）：fal.ai 一个 Key 全搞定
 
 一个 Key 同时覆盖**脚本 + 生图 + 生视频 + 配音**，以后想升级到 AI 成片也不用再配第二次。
 
-1. 打开工作台，点 **开始生成**，页面会内联弹出「接入 Atlas Cloud，立即开跑」的卡片（也可以走 **设置 → 顶部「新手推荐 · 一个 Key 全搞定」**）；
-2. 点卡片里的 **「没有 Key？1 分钟免费获取」**（也可直接打开注册页 https://www.atlascloud.ai?ref=JPM683 ），注册并复制 API Key；
+1. 打开工作台，点 **开始生成**，页面会内联弹出「接入 fal.ai，立即开跑」的卡片（也可以走 **设置 → 顶部「新手推荐 · 一个 Key 全搞定」**）；
+2. 打开 https://fal.ai/dashboard/keys 创建 Fal API Key；检查账户计费与模型权限，获得 Key 不代表生成免费；
 3. 回到 ClipForge，把 Key 粘进输入框，点 **「连接并开始」**；
-4. 看到 **「已接入 Atlas Cloud」** 的绿色提示 = 成功，脚本 / 生图 / 生视频 / 配音的模型已自动帮你选好，不用再逐项设置。
+4. 保存 Key 后系统会填入默认模型；这只是配置完成，不代表已经通过真实生成或账户额度验证。
 
 ---
 
@@ -268,7 +268,7 @@ pnpm dev
 
 | 预设 | baseUrl | 默认模型 | 备注 |
 |---|---|---|---|
-| Atlas Cloud | `https://api.atlascloud.ai/v1` | `deepseek-ai/deepseek-v4-pro` | 推荐，一个 Key 全流程通用 |
+| fal.ai | `https://fal.run/openrouter/router/openai/v1` | `google/gemini-2.5-flash` | Key 鉴权；仍需账户余额及对应模型权限 |
 | OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o` | 一个 Key 聚合 400+ 模型 |
 | DeepSeek | `https://api.deepseek.com` | `deepseek-v4-flash` | 便宜 |
 | Kimi | `https://api.moonshot.cn/v1` | `kimi-k2.5` | |
@@ -287,7 +287,7 @@ pnpm dev
 | 连接失败 ✗ / 401 | Key 填错、复制时带了空格 | 重新复制粘贴，注意首尾空格 |
 | 402 / 余额不足 | 平台没钱了 | 去平台充值 |
 | 404 / 模型不存在 | 模型名写错 | 点「读取可用模型」从列表里选 |
-| 404（Atlas Cloud） | baseUrl 填成了素材网关 `…/api/v1` | 脚本模型这一栏要填 `https://api.atlascloud.ai/v1`（`/api/v1` 只服务生图/生视频/配音）；v0.8.94 起旧配置会自动改回来 |
+| Fal 404 / 422 | 端点或请求参数不匹配 | 聊天地址为 `https://fal.run/openrouter/router/openai/v1`；媒体/配音地址为 `https://queue.fal.run`。只读 Key 探针返回 404 不能证明 Key 有效。 |
 | 超时 | 网络到不了该平台 | 换平台，或在「自定义接入点 baseUrl」里填你的代理地址 |
 
 > 连接测试走的是**服务端**，不受浏览器跨域限制；失败基本都是 baseUrl / Key / 模型名三者之一写错。
@@ -379,47 +379,17 @@ pnpm dev
 
 免费快剪用的是图库真实素材；想要**商品出镜、AI 素人真人口播、剧情短剧**这种质感，就走 AI 档。
 
-### 7.1 先说钱：一条多少
+### 7.1 先说钱：以当前账户报价为准
 
-**ClipForge 本身永远免费开源**，AI 用量按秒**直接付给你自己选的模型平台**，我们不加价、不抽成、不经手。
+ClipForge 开源；付费生成由 Fal 或所选服务商计费。**不要沿用旧供应商的秒价、分辨率倍率或“最便宜”结论。** 提交前核对具体端点、音频设置、时长和分辨率。配置费用上限而实际报价未知时，整片链路要求显式确认，不会伪造精确报价。
 
-一键整片是**按秒**计费的，单价随模型差很多（Atlas 官方基准价，2026-09 核对）：
-
-| 一键整片模型 | 基准价 | 时长上限 | 30 秒 @720p | 30 秒 @1080p |
-|---|---|---|---|---|
-| Seedance 2.5（当前默认） | $0.134/秒 | 30 秒 | 约 $8 | 约 $18 |
-| **Wan 3.0**（最划算） | $0.04/秒 | 30 秒 | **约 $2.4** | 约 $5.4 |
-| Wan 3.0 Prime | $0.061/秒 | 30 秒 | 约 $3.7 | 约 $8.2 |
-| MiniMax H3 | $0.038/秒 | 15 秒 | 15 秒约 $1.1 | 15 秒约 $2.6 |
-
-> **分辨率是最大的花钱开关。** 平台公布的「基准价」对应最低档（480p）。实测（2026-09，5 秒竖屏）：
->
-> | 短边 | 实际倍率 |
-> |---|---|
-> | 480p | 1x（基准价） |
-> | 720p | **2x** |
-> | 1080p | **约 4.5x** |
->
-> 所以同一条 30 秒的片，从 720p 调到 1080p，钱翻一倍多。ClipForge 默认用 **720p**——竖屏短视频发到平台还会被再压一次，1080p 多花的钱基本看不出来。另外原生 `1080p` 和 `1080p-sr`/`-esr` 超分档是**不同产品**，超分更贵。以上为参考，最终以你的账单为准。
-
-九宫格分镜（一次生图画齐所有镜头）另计，约 ¥1.3。
-
-**想省钱？换个模型就行**（设置 → 视频模型，默认是 Seedance 2.5，画质与原生人声最好，但也最贵）：
-
-| 想要什么 | 换成 | 基准价 | 说明 |
-|---|---|---|---|
-| 一键整片，省一大半 | **Wan 3.0** | $0.04/秒 | 比默认省 3.3 倍，同样支持满 30 秒，原生 1080p，带音轨同价 |
-| 一键整片，最省 | **Seedance 2.0 Mini** / **H3-Developer** | $0.011 / $0.02 | 跑量试片用，画质让位于成本 |
-| 逐镜生成（i2v） | **MiniMax H3 Max** | $0.048/秒 | 便宜且稳，5-15 秒，原生最高 768P；**没有参考生视频，一键整片用不了** |
-| 只要 15 秒内的短片 | **MiniMax H3** | $0.038/秒 | 单价低，2K，但单次上限 15 秒 |
-
-> 建议的省钱顺序：**先把分辨率从 1080p 调到 720p**（省一半以上，发到平台基本看不出差别），**再考虑换模型**。两个都做，一条 30 秒的片能从 $18 降到 $2.4。
+参考媒体上传失败会在生成前中止。已获得任务 ID 的图片、视频与配音任务保留恢复信息；查询失败或下载失败应恢复原任务，不要再次付费生成。若提交请求的回执丢失，结果具有不确定性，应先检查平台任务历史，再决定是否重提。
 
 ### 7.2 要多配什么
 
 免费档只要 LLM Key；AI 档还要**生图模型**和**视频模型**：
 
-- 用 Atlas Cloud 的话：一个 Key 已经全配好了，**什么都不用做**；
+- 用 fal.ai 的话：一个 Key 已经全配好了，**什么都不用做**；
 - 用别的平台：**设置 → 「平台 Key」**填对应平台 Key → **「生图模型」**和**「视频模型」**标签页里各选一个默认模型（模型列表运行时自动拉取，填好 Key 就会出现）。
 
 如果没配好，点 AI 成片时会直接提示「还没配好生图/视频模型」，不会白跑。
@@ -533,17 +503,17 @@ pnpm dev
 ```bash
 # macOS / Linux
 export CLIPFORGE_BASE_URL="http://localhost:3000"
-export CLIPFORGE_LLM_BASE_URL="https://api.atlascloud.ai/v1"
+export CLIPFORGE_LLM_BASE_URL="https://fal.run/openrouter/router/openai/v1"
 export CLIPFORGE_LLM_API_KEY="sk-你的key"
-export CLIPFORGE_LLM_MODEL="deepseek-ai/deepseek-v4-pro"
+export CLIPFORGE_LLM_MODEL="google/gemini-2.5-flash"
 ```
 
 ```powershell
 # Windows PowerShell
 $env:CLIPFORGE_BASE_URL="http://localhost:3000"
-$env:CLIPFORGE_LLM_BASE_URL="https://api.atlascloud.ai/v1"
+$env:CLIPFORGE_LLM_BASE_URL="https://fal.run/openrouter/router/openai/v1"
 $env:CLIPFORGE_LLM_API_KEY="sk-你的key"
-$env:CLIPFORGE_LLM_MODEL="deepseek-ai/deepseek-v4-pro"
+$env:CLIPFORGE_LLM_MODEL="google/gemini-2.5-flash"
 ```
 
 常用命令：
@@ -583,9 +553,9 @@ crontab -e
       "args": ["/绝对路径/clipforge/mcp/clipforge-mcp.mjs"],
       "env": {
         "CLIPFORGE_BASE_URL": "http://localhost:3000",
-        "CLIPFORGE_LLM_BASE_URL": "https://api.atlascloud.ai/v1",
+        "CLIPFORGE_LLM_BASE_URL": "https://fal.run/openrouter/router/openai/v1",
         "CLIPFORGE_LLM_API_KEY": "sk-...",
-        "CLIPFORGE_LLM_MODEL": "deepseek-ai/deepseek-v4-pro"
+        "CLIPFORGE_LLM_MODEL": "google/gemini-2.5-flash"
       }
     }
   }
@@ -622,7 +592,7 @@ claude mcp add clipforge -- node /绝对路径/clipforge/mcp/clipforge-mcp.mjs
 | 「尚未配置 LLM，请先到设置填写 API Key」 | 没配写脚本的 Key | 见[第 4 节](#4-第二步配一个写脚本的-key唯一必配项) |
 | 「脚本生成失败，请检查 LLM 配置」 | Key 错 / 没余额 / 模型名错 | 设置 → 脚本模型 → 点「测试连接」看具体报错 |
 | 「未配置默认生图模型」 | AI 档缺生图模型 | 设置 →「生图模型」选一个默认模型 |
-| 「还没配好生图/视频模型」 | AI 成片缺模型 | 设置 →「生图模型」+「视频模型」各选一个（或直接接 Atlas 一个 Key） |
+| 「还没配好生图/视频模型」 | AI 成片缺模型 | 设置 →「生图模型」+「视频模型」各选一个（或直接配置 Fal Key） |
 | 模型下拉框是空的 | 该平台 Key 没填或无效 | 先在「平台 Key」里填好 Key，模型列表会自动出现 |
 
 ### 11.3 生成 / 成片类

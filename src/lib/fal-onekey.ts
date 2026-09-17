@@ -6,9 +6,7 @@
  * beginner hunting for a second vendor's key.
  *
  * The LLM route is fal's OpenRouter gateway: OpenAI-compatible, shares the fal key.
- * Verified 2026-09-15, all HTTP 200 with a normal completion, using `Authorization: Bearer <FAL_KEY>`
- * (fal also accepts `Key <FAL_KEY>`):
- *   openai/gpt-4o-mini · google/gemini-2.5-flash · deepseek/deepseek-chat · anthropic/claude-sonnet-4
+ * Use the documented `Authorization: Key <FAL_KEY>` scheme for this gateway.
  *
  * Caveat: `GET {base}/models` returns 404, so the settings "read available models" button cannot
  * enumerate this endpoint — the model id has to be typed.

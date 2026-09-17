@@ -1,9 +1,8 @@
+import { nearestFalAspectRatio } from "@/lib/providers/fal-video-params";
+import { persistGeneratedFilm } from "@/lib/storyboard-film-persistence";
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
-import { getDataDir } from "@/lib/paths";
 import { getDb } from "@/lib/db";
-import { scripts, assets, compositions } from "@/lib/db/schema";
+import { scripts, assets } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { createProvider } from "@/lib/providers";
 import { ProviderError } from "@/lib/providers/base";
@@ -19,7 +18,6 @@ import {
   FILM_MAX_SECONDS,
 } from "@/lib/storyboard-film";
 import { toProviderImage } from "@/lib/remote-image";
-import { probeMedia } from "@/lib/media-probe";
 import { recordAiTask, updateAiTask } from "@/lib/ai-tasks";
 import { apiError, errText } from "@/lib/api-error";
 
@@ -105,9 +103,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const fit = filmDurationFit(shots, choice.model);
 
     if (dryRun) {
-      const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl });
+      const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) });
       const previewOpts = (options ?? {}) as { width?: number; height?: number };
-      const estimate = estimateFilmSpend(await unitPriceUsd(choice.model, baseUrl), fit.seconds, previewOpts);
+      const estimate = estimateFilmSpend(await unitPriceUsd(), fit.seconds, previewOpts);
       // planned reference count: one keyframe per shot (+ the identity sheet when present) —
       // computable before the grid pass has actually rendered the keyframes
       const plannedRefs = shots.length + (characterSheetUrl ? 1 : 0);
@@ -188,8 +186,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (Number.isFinite(cap) && cap > 0 && !acknowledgeOverCap) {
       // compare the HIGH end: a floor-priced estimate is exactly what hid the real bill (issue #28)
       const capOpts = (options ?? {}) as { width?: number; height?: number };
-      const estimate = estimateFilmSpend(await unitPriceUsd(choice.model, baseUrl), fit.seconds, capOpts);
-      if (estimate && estimate.maxUsd > cap) {
+      const estimate = estimateFilmSpend(await unitPriceUsd(), fit.seconds, capOpts);
+      if (!estimate) {
+        return apiError(req, "当前模型价格未知，无法保证花费上限；请先确认未知价格风险", "The model price is unknown; acknowledge the unknown cost before submitting", 400);
+      }
+      if (estimate.maxUsd > cap) {
         return apiError(
           req,
           `预估花费最高 $${estimate.maxUsd.toFixed(2)}（${choice.model} $${estimate.unitUsd}/秒 × ${estimate.seconds} 秒；当前分辨率档实测约为基准价的 ${estimate.tierMultiplier} 倍）超过你设置的单次上限 $${cap}——请调高上限、调低分辨率、换更便宜的模型，或缩短脚本`,
@@ -204,7 +205,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       (u): u is string => !!u
     );
 
-    const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl });
+    const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) });
     const duration = fit.seconds;
     // lip-sync guardrail (advisory, never blocks): overstuffed lines drift out of sync near the
     // end of a segment — surfaced so the UI/CLI can suggest trimming before the paid generation
@@ -228,7 +229,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // legacy single-phase path for providers without two-phase task support
     if (!provider.submitVideoTask || !provider.waitForTask) {
       const result = await provider.generateVideo(videoOptions);
-      const saved = await persistFilm(id, result.videoUrls?.[0], choice.model);
+      const saved = await persistGeneratedFilm(id, result.videoUrls?.[0], choice.model, result.taskId);
       return NextResponse.json({ ...saved, taskId: result.taskId, modelId: result.modelId, seconds: duration, dialogueWarnings });
     }
 
@@ -239,7 +240,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       provider: providerName,
       model: modelId,
       mediaType: "video",
-      mode: "video-to-video",
+      mode: "storyboard-film",
       prompt,
       taskId,
     });
@@ -256,8 +257,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           { status: 502 }
         );
       }
-      await updateAiTask(rowId, { status: "completed", resultUrls: [videoUrl], error: null });
-      const saved = await persistFilm(id, videoUrl, modelId);
+      await updateAiTask(rowId, { status: "download_pending", resultUrls: [videoUrl], error: null });
+      const saved = await persistGeneratedFilm(id, videoUrl, modelId, taskId);
+      await updateAiTask(rowId, { status: "completed", resultUrls: [saved.url], error: null });
       return NextResponse.json({ ...saved, taskId, modelId, seconds: duration, dialogueWarnings });
     } catch (error) {
       const failed = error instanceof ProviderError && error.code === "TASK_FAILED";
@@ -291,40 +293,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 /**
  * Published per-second price for a model, or undefined when we have no price source.
  *
- * Pricing is advisory: callers fall back to their own estimate, and a missing price must never
- * block a run. We no longer ship a catalog to read it from, so this reports "unknown".
+ * Unknown pricing is never a fabricated quote: configured spend caps require explicit
+ * acknowledgement before generation. We no longer ship a catalog to read it from, so this reports "unknown".
  */
-function unitPriceUsd(_modelId: string, _baseUrl?: string): number | undefined {
+function unitPriceUsd(): number | undefined {
   return undefined;
-}
-
-/** Download the generated film into the project's output dir and register it as a composition. */
-async function persistFilm(projectId: string, videoUrl: string | undefined, model: string) {
-  if (!videoUrl) throw new Error("生成完成但未返回视频地址");
-  const resp = await fetch(videoUrl);
-  if (!resp.ok) throw new Error(`下载成片失败: ${resp.status}`);
-  const buf = Buffer.from(await resp.arrayBuffer());
-  const outputDir = join(getDataDir(), "output", projectId);
-  await mkdir(outputDir, { recursive: true });
-  const fileName = `film_${Date.now()}.mp4`;
-  const outputPath = join(outputDir, fileName);
-  await writeFile(outputPath, buf);
-
-  const probe = await probeMedia(outputPath).catch(() => undefined);
-  const db = getDb();
-  const [comp] = await db
-    .insert(compositions)
-    .values({
-      projectId,
-      outputPath,
-      resolution: "720p",
-      aspectRatio: "9:16",
-      ...(probe?.duration ? { duration: Math.round(probe.duration * 1000) } : {}),
-      // one-call native generation: no badge burned in — the release gate reports this honestly
-      aigcBadge: false,
-      label: `九宫格整片 · ${model.split("/").slice(0, 2).pop() ?? model}`.slice(0, 60),
-      status: "done",
-    })
-    .returning();
-  return { url: `/api/output/${projectId}/${fileName}`, compositionId: comp.id, fileName };
 }

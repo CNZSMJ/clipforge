@@ -28,7 +28,7 @@ describe("video control plan", () => {
     expect(plan.promptSuffix).toContain("只自然说一遍");
   });
 
-  it("keeps identity references and carries the end frame as a target anchor", () => {
+  it("keeps hard start/end frames and reports deferred identity references", () => {
     const plan = buildVideoControlPlan({
       provider: "fal-ai",
       modelId: "bytedance/seedance-2.5/image-to-video",
@@ -40,14 +40,15 @@ describe("video control plan", () => {
     });
 
     expect(plan).toMatchObject({
-      strategy: "reference-pack",
-      mode: "video-to-video",
+      strategy: "keyframe",
+      mode: "image-to-video",
       audioMode: "native",
-      referenceCount: 3,
-      referenceRoles: ["keyframe", "end-frame", "character"],
-      warnings: [],
+      referenceCount: 2,
+      referenceRoles: ["keyframe", "end-frame"],
+      warnings: ["reference-pack-deferred-for-end-frame"],
     });
-    expect(plan.referenceInputs.map((item) => item.role)).toEqual(["keyframe", "end-frame", "character"]);
+    expect(plan.referenceInputs).toEqual([]);
+    expect(plan.lastFrameUrl).toBe("https://e.com/end.png");
   });
 
   it("keeps native start/end frames when only a soft continuity reference competes", () => {

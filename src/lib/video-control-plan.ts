@@ -124,13 +124,12 @@ export function buildVideoControlPlan(input: {
   ];
   const warnings: VideoControlWarning[] = [];
   const hasVisualPack = optional.some((item) => item.mediaType !== "audio");
-  const hasIdentityPack = optional.some((item) => item.mediaType === "image" && item.required);
   const canUseVisualPack = capabilities.referenceImages === true;
   const canUseAudioReference = capabilities.referenceAudio === true;
-  // Identity/product fidelity wins over a hard end-frame on reference-pack providers: reference
-  // mode can still carry that end frame as a target anchor, while plain continuity-only requests
-  // retain the provider's stronger native start/end-frame contract.
-  const isReferencePackMode = REFERENCE_PACK_PROVIDERS.has(input.provider) && hasVisualPack && canUseVisualPack && (!input.lastFrameUrl || hasIdentityPack);
+  // A pin is a hard end-frame contract, not an unordered reference image. When fal cannot
+  // carry identity references alongside pinned frames, retain the frames and explicitly
+  // warn that the additional pack is deferred. Never silently weaken the cut boundary.
+  const isReferencePackMode = REFERENCE_PACK_PROVIDERS.has(input.provider) && hasVisualPack && canUseVisualPack && !input.lastFrameUrl;
   const canAttachAlongsideFrames = REFERENCE_ALONGSIDE_FRAMES_PROVIDERS.has(input.provider) && hasVisualPack && canUseVisualPack;
 
   if (hasVisualPack && !canUseVisualPack) warnings.push("reference-pack-unsupported");
@@ -138,6 +137,7 @@ export function buildVideoControlPlan(input: {
     warnings.push("reference-pack-deferred-for-end-frame");
   }
   if (input.audioReferenceUrl && !canUseAudioReference) warnings.push("reference-audio-unsupported");
+  if (input.motionReferenceUrl && capabilities.referenceVideo !== true) warnings.push("reference-pack-unsupported");
 
   let referenceInputs: VideoReferenceInput[] = [];
   if (isReferencePackMode) {
@@ -147,9 +147,9 @@ export function buildVideoControlPlan(input: {
     if (isNonEmpty(input.lastFrameUrl)) {
       referenceInputs.push({ url: input.lastFrameUrl, role: "end-frame", mediaType: "image", required: false });
     }
-    referenceInputs.push(...optional.filter((item) => item.mediaType !== "audio" || canUseAudioReference));
+    referenceInputs.push(...optional.filter((item) => (item.mediaType !== "audio" || canUseAudioReference) && (item.mediaType !== "video" || capabilities.referenceVideo === true)));
   } else if (canAttachAlongsideFrames) {
-    referenceInputs.push(...optional.filter((item) => item.mediaType !== "audio" || canUseAudioReference));
+    referenceInputs.push(...optional.filter((item) => (item.mediaType !== "audio" || canUseAudioReference) && (item.mediaType !== "video" || capabilities.referenceVideo === true)));
   } else if (input.audioReferenceUrl && canUseAudioReference) {
     referenceInputs.push({ url: input.audioReferenceUrl, role: "audio", mediaType: "audio", required: false });
   }

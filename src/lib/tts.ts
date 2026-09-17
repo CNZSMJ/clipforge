@@ -1,7 +1,8 @@
+import { generateFalSpeech, clearCompletedFalSpeech } from "./fal-tts";
 /**
  * TTS dubbing — unified entry point for multiple platforms.
  *
- * Supports four paid TTS providers, dispatched by config.provider
+ * Supports three paid TTS providers, dispatched by config.provider
  * (defaults to "openai" for backward compatibility with legacy configs):
  * - openai: OpenAI-compatible /audio/speech (tts-1 / SiliconFlow CosyVoice / Volcengine Ark…), synchronous mp3.
  * - minimax: MiniMax Hailuo T2A v2, synchronous hex-encoded mp3 (domestic endpoint requires GroupId).
@@ -125,10 +126,11 @@ export async function generateSpeech(text: string, config: TTSConfig): Promise<B
   try {
     // Retries live INSIDE one breaker-accounted call: the breaker judges the final outcome, so a
     // wobble that recovers on retry doesn't burn a failure toward the 2-strike trip threshold.
-    const buf = await withTTSRetry(() => dispatchTTS(clean, config));
+    const buf = provider === "falai" ? await generateFalSpeech(clean, config) : await withTTSRetry(() => dispatchTTS(clean, config));
     breaker.recordSuccess();
     // Write-through on success only (failures are never cached); cache errors degrade silently
     await writeTtsCache(cacheKey, buf);
+    if (provider === "falai" && await readTtsCache(cacheKey)) await clearCompletedFalSpeech(clean, config);
     return buf;
   } catch (e) {
     breaker.recordFailure();
@@ -165,7 +167,7 @@ function dispatchTTS(clean: string, config: TTSConfig): Promise<Buffer> {
     case "minimax":
       return generateSpeechMiniMax(clean, config);
     case "falai":
-      return generateSpeechFal(clean, config);
+      return generateFalSpeech(clean, config);
     default:
       return generateSpeechOpenAI(clean, config);
   }
@@ -175,28 +177,6 @@ const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min)
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** Truncate error body to 200 characters and explicitly mark the ellipsis, avoiding silent truncation that could be mistaken for a complete error message */
 const clipErr = (s: string) => (s.length > 200 ? s.slice(0, 200) + "…(已截断)" : s);
-
-/** Normalize an audio field from a response (URL / data URI / base64 / hex) by downloading or decoding it into a Buffer */
-async function audioToBuffer(input: string): Promise<Buffer> {
-  const s = input.trim();
-  if (/^https?:\/\//i.test(s)) {
-    // 30s timeout: prevents indefinite blocking when a remote audio server is slow or hung,
-    // which would stall the entire TTS → compose pipeline
-    const resp = await fetch(s, { signal: AbortSignal.timeout(30000) });
-    if (!resp.ok) throw new Error(`下载音频失败: ${resp.status}`);
-    return Buffer.from(await resp.arrayBuffer());
-  }
-  if (s.startsWith("data:")) {
-    const comma = s.indexOf(",");
-    // A well-formed data URI always has a comma before the payload; without it, slice(0) would
-    // feed the "data:...;base64" header into the base64 decoder and yield garbage/empty audio.
-    if (comma === -1) throw new Error("音频 data URI 格式错误（缺少逗号分隔符）");
-    return Buffer.from(s.slice(comma + 1), "base64");
-  }
-  // Pure hex (only 0-9a-f and even length): decode as hex; otherwise decode as base64
-  if (/^[0-9a-fA-F]+$/.test(s) && s.length % 2 === 0) return Buffer.from(s, "hex");
-  return Buffer.from(s, "base64");
-}
 
 // ==================== OpenAI 兼容 /audio/speech ====================
 
@@ -270,64 +250,4 @@ async function generateSpeechMiniMax(text: string, config: TTSConfig): Promise<B
   const hex = j?.data?.audio;
   if (!hex) throw new Error("MiniMax TTS 未返回音频（检查 Key / GroupId / 音色 id）");
   return Buffer.from(hex, "hex");
-}
-
-// ==================== fal.ai（MiniMax Speech-02，队列异步） ====================
-
-async function generateSpeechFal(text: string, config: TTSConfig): Promise<Buffer> {
-  const base = (config.baseUrl || "https://queue.fal.run").replace(/\/$/, "");
-  const model = config.model || "fal-ai/minimax/speech-02-hd";
-  const headers = { Authorization: `Key ${config.apiKey}`, "Content-Type": "application/json" };
-
-  const submit = await fetch(`${base}/${model}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      text,
-      output_format: "url",
-      voice_setting: {
-        voice_id: config.voice || "Wise_Woman",
-        speed: config.speed != null ? clamp(config.speed, 0.5, 2) : 1,
-        vol: 1,
-        pitch: 0,
-      },
-      audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 },
-    }),
-  });
-  if (!submit.ok) {
-    const t = await submit.text().catch(() => "");
-    throw new Error(`fal TTS 提交失败: ${submit.status} - ${clipErr(t)}`);
-  }
-  const sj = (await submit.json()) as { request_id?: string; status_url?: string; response_url?: string };
-  if (!sj?.request_id) throw new Error("fal TTS 未返回 request_id");
-  // Prefer the returned status_url / response_url (most reliable); fall back to constructing queue URLs by convention
-  const statusUrl = sj.status_url || `${base}/${model}/requests/${sj.request_id}/status`;
-  const resultUrl = sj.response_url || `${base}/${model}/requests/${sj.request_id}`;
-
-  for (let i = 0; i < 60; i++) {
-    await sleep(1000);
-    // Network jitter or a malformed status/result response must not crash the whole generation —
-    // skip this poll and retry next round (transient status-query failures are tolerated).
-    let status: string;
-    try {
-      const st = await fetch(statusUrl, { headers, signal: AbortSignal.timeout(10000) });
-      if (!st.ok) continue;
-      const sjson = (await st.json()) as { status?: string };
-      status = (sjson.status || "").toUpperCase();
-    } catch {
-      continue;
-    }
-    if (status === "COMPLETED") {
-      const rr = await fetch(resultUrl, { headers, signal: AbortSignal.timeout(10000) });
-      if (!rr.ok) throw new Error(`fal TTS 取结果失败: ${rr.status}`);
-      const result = (await rr.json()) as { audio?: { url?: string } };
-      const audioUrl = result?.audio?.url;
-      if (!audioUrl) throw new Error("fal TTS 完成但未返回音频 URL");
-      return audioToBuffer(audioUrl);
-    }
-    if (status === "FAILED" || status === "ERROR") {
-      throw new Error("fal TTS 任务失败");
-    }
-  }
-  throw new Error("fal TTS 轮询超时");
 }

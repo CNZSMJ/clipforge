@@ -65,7 +65,7 @@ describe("video repair planning", () => {
       reviewId: "review-1",
       shotId: 2,
       provider: "fal-ai",
-      model: "bytedance/seedance-2.0/image-to-video",
+      model: "bytedance/seedance-2.5/image-to-video",
       supportsAudio: true,
       sourceDuration: 8,
       report,
@@ -77,7 +77,7 @@ describe("video repair planning", () => {
       pricePerCall: 0.42,
     });
     expect(preview.executable).toBe(true);
-    expect(preview.summary.model).toBe("bytedance/seedance-2.0/reference-to-video");
+    expect(preview.summary.model).toBe("bytedance/seedance-2.5/reference-to-video");
     expect(preview.summary.effectiveScope).toBe("full-frame");
     expect(preview.summary.estimatedCostUsd).toBe(0.42);
     expect(preview.summary.warnings).toEqual(expect.arrayContaining([
@@ -92,7 +92,7 @@ describe("video repair planning", () => {
   it("rejects a summary whose confirmed window was changed", () => {
     const preview = buildVideoRepairPreview({
       operationId: "op-2", sourceAssetId: "asset-1", reviewId: "review-1", shotId: 2,
-      provider: "fal-ai", model: "bytedance/seedance-2.0/reference-to-video",
+      provider: "fal-ai", model: "bytedance/seedance-2.5/reference-to-video",
       sourceDuration: 8, report, contract, sourceUploadAvailable: true,
     });
     expect(sanitizeVideoRepairSummary({ ...preview.summary, window: { start: 0, end: 8 } })).toBeNull();

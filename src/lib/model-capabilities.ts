@@ -6,6 +6,7 @@ import {
   pickRatio,
   pickResolution,
 } from "@/lib/providers/video-params";
+import { FAL_VIDEO_SPECS, getFalVideoSpec, falReferenceSibling, falFrameSibling, nearestFalAspectRatio, nearestFalResolution, nearestFalDuration } from "@/lib/providers/fal-video-params";
 import { modelSupportsLastFrame } from "@/lib/video-composer/transitions";
 
 export type CapabilityConfidence = "known" | "inferred" | "unknown";
@@ -119,6 +120,31 @@ function inferredModes(modelId: string): Pick<VideoModelCapabilities, "textToVid
 
 /** Normalize provider-specific video metadata into one UI-facing capability contract. */
 export function getVideoModelCapabilities(modelId: string, supportsAudio?: boolean, provider?: string): VideoModelCapabilities {
+  if (provider === "fal-ai" || (!provider && FAL_VIDEO_SPECS[modelId])) {
+    const spec = getFalVideoSpec(modelId);
+    const known = Boolean(FAL_VIDEO_SPECS[modelId]);
+    const frame = getFalVideoSpec(falFrameSibling(modelId, true) ?? modelId);
+    const referenceId = falReferenceSibling(modelId);
+    const reference = referenceId ? getFalVideoSpec(referenceId) : {};
+    return {
+      confidence: known ? "known" : "unknown",
+      textToVideo: known ? !spec.firstFrame && !spec.referenceImages : null,
+      imageToVideo: known ? Boolean(frame.firstFrame) : null,
+      referenceImages: known ? Boolean(reference.referenceImages) : null,
+      referenceVideo: known ? Boolean(reference.referenceVideos) : null,
+      referenceAudio: known ? Boolean(reference.referenceAudio) : null,
+      lastFrame: known ? Boolean(frame.lastFrame) : null,
+      nativeAudio: known ? Boolean(spec.audio || spec.nativeAudio) : null,
+      // This adapter implements reference generation, not a provider-native edit request.
+      videoEdit: false,
+      temporalRetake: false, regionMask: false, multiKeyframes: false,
+      performanceReference: known ? Boolean(reference.referenceVideos) : null,
+      durationValues: spec.durations ?? (spec.durationRange ? Array.from({ length: spec.durationRange[1] - spec.durationRange[0] + 1 }, (_, i) => spec.durationRange![0] + i) : spec.fixedDuration ? [spec.fixedDuration] : undefined),
+      resolutionValues: spec.resolutions,
+      aspectRatioValues: spec.aspects,
+      maxReferenceImages: reference.maxReferenceImages,
+    };
+  }
   const spec = getVideoParamSpec(modelId);
   const modes = inferredModes(modelId);
   const references = referenceCapabilities(modelId, provider);
@@ -170,6 +196,30 @@ export function preflightVideoGeneration(input: {
   referenceAudioCount?: number;
 }): VideoGenerationPreflight {
   const capabilities = getVideoModelCapabilities(input.modelId, input.supportsAudio, input.provider);
+  if (input.provider === "fal-ai" || (!input.provider && FAL_VIDEO_SPECS[input.modelId])) {
+    const effectiveModel = (input.referenceImageCount && input.chainMode !== "pin" ? falReferenceSibling(input.modelId) : undefined) ?? input.modelId;
+    const spec = getFalVideoSpec(effectiveModel);
+    const { width, height } = videoSize(input.resolution, input.aspectRatio);
+    const adjustments: PreflightAdjustment[] = [];
+    const warnings: VideoGenerationPreflight["warnings"] = [];
+    if (capabilities.confidence === "unknown") warnings.push("capabilities-unknown");
+    if (input.duration != null) {
+      // UI can show the maximum; the provider blocks overflow rather than cutting dialogue.
+      const effective = spec.fixedDuration ?? nearestFalDuration(input.duration, spec.durations) ?? (spec.durationRange ? Math.min(spec.durationRange[1], Math.max(spec.durationRange[0], Math.ceil(input.duration))) : input.duration);
+      if (effective !== input.duration) adjustments.push({ field: "duration", requested: input.duration, effective, code: "nearest-duration" });
+    }
+    const resolution = nearestFalResolution(width, height, spec.resolutions);
+    if (resolution && resolution.toLowerCase() !== input.resolution.toLowerCase()) adjustments.push({ field: "resolution", requested: input.resolution, effective: resolution, code: "mapped-resolution" });
+    const ratio = spec.usesAspectRatio ? nearestFalAspectRatio(width, height, spec.aspects) : undefined;
+    if (ratio && ratio !== input.aspectRatio) adjustments.push({ field: "aspectRatio", requested: input.aspectRatio, effective: ratio, code: "adaptive-ratio" });
+    // Tail chaining consumes the previous clip's tail as this clip's FIRST frame.
+    if (input.chainMode === "pin" && capabilities.lastFrame === false) adjustments.push({ field: "chainMode", requested: input.chainMode, effective: "off", code: "unsupported-last-frame" });
+    if (input.audioEnabled && capabilities.nativeAudio === false) warnings.push("native-audio-unavailable");
+    if ((input.referenceImageCount ?? 0) > 0 && capabilities.referenceImages === false) warnings.push("reference-conditioning-unavailable");
+    if ((input.referenceAudioCount ?? 0) > 0 && capabilities.referenceAudio === false) warnings.push("reference-audio-unavailable");
+    if (capabilities.maxReferenceImages != null && (input.referenceImageCount ?? 0) > capabilities.maxReferenceImages) warnings.push("reference-images-trimmed");
+    return { capabilities, adjustments, warnings };
+  }
   const spec = getVideoParamSpec(input.modelId);
   const adjustments: PreflightAdjustment[] = [];
   const warnings: VideoGenerationPreflight["warnings"] = [];

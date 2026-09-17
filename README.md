@@ -81,7 +81,7 @@
 - 🚦 **合规**：GB45438 AIGC 显式+隐式双标识、广告法违禁词扫描、发布门禁报告，默认全开。
 - 🎚️ **编辑交付升级（v0.9.5）**：可调 BGM 音量与旁白闪避；文字剪辑计划支持 JSON 导入、OTIO/EDL/CSV 批量导出、节奏标记和可编辑字幕轨；成片 sidecar 提供 A1/A2/A3 音轨映射，并可选导出旁白/BGM WAV stems；CLI/MCP 支持固定合成版本导出和音轨参数。
 - 💸 **别再被分辨率悄悄扣钱（v0.9.4）**：有用户充 $25 跑一条 30 秒片就烧掉 $22（issue #28）。查下来是我们的锅——手抄的分辨率清单漏了 Seedance 2.5 的**原生 1080p**，于是设置里的 1080p 只能掉进更贵的 `1080p-sr` 超分加价档。实测（5 秒竖屏看真实扣费）分辨率才是最大的花钱开关：1080p ≈ 基准价 4.5 倍、720p ≈ 2 倍，而平台公布的「基准价」对应的是 480p。现在：补齐原生档位并加回归测试；**默认分辨率改为 720p**；生成前按所选档位的实测倍率显示预估花费，并可设单次花费上限，超了先拦；一键整片需要换模型时先征求同意；脚本超过所选模型时长上限时在花钱前拦截，不再静默截掉后半段。
-- 🩹 **修复（v0.8.94）**：Atlas Cloud 一键接入把「素材网关」`/api/v1` 写进了脚本模型地址，而聊天接口在 `/v1`，于是写脚本必挂 404，报错还把锅甩给模型名（issue #24）。现在一键接入写聊天网关，老配置升级时自动改回，手动填错也会在请求前纠正；Key 连通性测试同步改打聊天网关，有效 Key 不再显示「无法判定」。
+- 历史变更（v0.8.94）：修复过旧 Atlas 集成的聊天地址问题；该供应商现已在此分支移除。
 
 </details>
 
@@ -89,7 +89,7 @@
 
 - 🎭 [**Dramake**](https://github.com/xixihhhh/ai-short-drama-skill)：导演级 AI 短剧 Agent Skill，把点子、小说或剧本串成可追踪的剧本、角色母版、分镜、模型与预算路线、配音、剪辑和质检流程，适配 Codex、Claude Code 与 WorkBuddy。安装：`npx skills add xixihhhh/ai-short-drama-skill --skill dramake`
 
-想更高画质再加 Key：一个接口聚合 **7 大平台 30+ 精选模型**（GPT Image 2 / **Seedance 2.5** / **MiniMax H3** / Kling O3 / Veo 3.1…），Atlas 全站 **200+ 视频模型动态直连**——平台新上的模型无需升级就能用；自部署开源（AGPL-3.0），数据全在本机不上云。
+使用 AI 生成功能时，请配置自己的 **fal.ai Key**。内置模型按已核对的端点契约接入；项目数据库在本机，但云端生成需要将提示词和参考媒体发送给 Fal 及对应模型服务商。
 
 ## 🎬 示例：一张商品图进去，一条能发的片出来（Seedance 2.5 实测）
 
@@ -303,19 +303,18 @@ crontab -e   # 加入下面一行（把路径和环境变量换成你的）
 >
 > 💰 **付费安全与防呆**：云端视频任务**提交成功即落库任务 ID**，轮询超时/断网/重启都不丢已扣费任务（素材页「恢复查询」取回结果，杜绝重复付费）；创建付费任务的请求**绝不自动重试**；「转动态」**自动校验并映射到真 i2v 模型**，不会计费成文生视频；生图尺寸**按各模型协议自动适配合法值**（比例精确不失真），杜绝「尺寸不合法但已扣费」的失败任务。
 
-一个接口聚合 7 大生图/生视频平台 + OpenRouter LLM、30+ 精选模型，Atlas 平台另有 **200+ 视频模型动态发现**（运行时拉取官方模型目录并按各模型公开 schema 自动构参——平台每上新一个模型，设置页下拉就多一项，无需等升级）：
+此分支以 Fal 为主要图片、视频与配音供应商，保留原有非 Atlas 平台接口。模型表是经过契约核对的精选注册表，不是自动发现 Fal 全站全部模型。
 
 | 平台 | 图片模型 | 视频模型 | 特色 |
 |------|---------|---------|------|
-| **[Atlas Cloud](https://www.atlascloud.ai?ref=JPM683)** ⭐推荐 | **GPT Image 2**, Seedream 5.0, Nano Banana 2 | **Seedance 2.5**(4-30s·原生人声), Seedance 2.0, **MiniMax H3**(海螺3.0·2K·原生立体声), Kling O3, Veo 3.1, 万相 2.7, Hailuo 2.3, Vidu Q3 + 全站 200+ 动态直连 | 一个 Key 聚合 LLM+生图+生视频，模型最全价格最优 |
-| **fal.ai** | **GPT Image 2**(+edit), FLUX.1/2 Pro, Recraft V4, Seedream V5 Edit | Kling 3.0 Pro, Veo 3, Hailuo 2.3, Luma Ray 2, Vidu Q2 | 模型全，含 OpenAI 生图与商品保真编辑 |
+| **fal.ai** | GPT Image / FLUX / Recraft / Seedream | Seedance 2.5 / Hailuo / Kling V3 / Veo 3 / Luma / Vidu / Wan | 按具体端点验证参数与参考条件，详见迁移审查 |
 | **Replicate** | FLUX 1.1 Pro/Kontext, Imagen 4, Seedream 4 | Kling v2.1, Seedance 1 Pro, Hailuo 02, Veo 3 Fast | 模型库最全，predictions API 统一调用 |
 | **火山引擎（方舟 Ark）** | Seedream 5.0/4.0 | Seedance 2.0/1.0 Pro(原生音频) | 字节系明星模型，电影级画质，速度快 |
 | **阿里百炼** | 通义万相 | 万相 2.6/2.5/2.2/2.1 | 商品图生视频效果好 |
 | **硅基流动** | Kolors, Qwen-Image | - | 国产高性价比 |
 | **OpenAI** | **gpt-image-2**（任意分辨率+图生图编辑）, gpt-image-1.5 | - | 2026 官方旗舰图像模型，文字渲染强、9:16 竖屏直出、商品保真编辑 |
 
-> **LLM（脚本生成）** 走 OpenAI 兼容协议，内置 Atlas Cloud / **OpenRouter**(400+模型) / DeepSeek / Kimi / 智谱 / 豆包 / OpenAI 等一键预设，并含 **Ollama 本地**（离线免 Key）与 **Pollinations**（注册领每日免费额度，需填 Key）两档免费选项——任意 OpenAI 兼容端点都能填。
+> **LLM（脚本生成）** 走 OpenAI 兼容协议，内置 fal.ai / **OpenRouter**(400+模型) / DeepSeek / Kimi / 智谱 / 豆包 / OpenAI 等一键预设，并含 **Ollama 本地**（离线免 Key）与 **Pollinations**（注册领每日免费额度，需填 Key）两档免费选项——任意 OpenAI 兼容端点都能填。
 > Pollinations 旧的免 Key 地址 `text.pollinations.ai` 已被官方停用（只返回 402/502），预设与本地已存配置会自动迁到新端点 `gen.pollinations.ai/v1`，Key 在 <https://enter.pollinations.ai/keys> 免费领取。
 > 模型名不用手打：设置页每个模型输入框下都有「读取可用模型」，直接列出该端点真正提供的模型点选填入；填错时报错也会带上可用模型清单。
 > **Ollama 本地**请用 `ollama list` 里的完整名字（含 `:tag`，如 `qwen2.5:7b-instruct`），并建议 7B 及以上的 instruct 模型——0.5B/1.5B 级别写不出结构化脚本（实测 `qwen2.5:7b-instruct` 可正常出片，更小的模型会被拦下并提示换模型）。
@@ -445,7 +444,7 @@ open http://localhost:3000
 
 ### 首次配置
 
-1. 点击右上角 **设置**，配置至少一个 AI 平台的 API Key（推荐 **[Atlas Cloud](https://www.atlascloud.ai?ref=JPM683)**，一个 Key 同时支持 LLM + 生图 + 生视频）
+1. 点击右上角 **设置**，配置至少一个 AI 平台的 API Key（推荐 **fal.ai**，一个 Key 同时支持 LLM + 生图 + 生视频）
 2. 配置 LLM（脚本生成需要，支持任何 OpenAI 兼容接口）
 3. 在"默认设置"里选择默认生图 / 生视频模型（如 GPT Image 2、Seedance 2.5）
 4. （可选）在"出镜人物"Tab 添加角色，在"品牌设置"Tab 配置品牌视觉
@@ -535,46 +534,15 @@ src/
 
 ---
 
-## 支持的 AI 模型（2026.08 官方文档确认）
+## Fal 模型接入（2026-09-17 核对接口契约）
 
-### 视频生成
+图片模型族：GPT Image 2.5 Sunburst、GPT Image 2 / 1.5、FLUX、Recraft、Seedream V5 Lite。视频模型族：Seedance 2.5、Kling V3、Veo 3、Hailuo 02 / 2.3 / 03、Luma Ray 2、Vidu、Wan 2.2。
 
-| 模型 | 平台 | 音频 | 模式 | 特点 |
-|------|------|------|------|------|
-| **Seedance 2.5** ⭐ | Atlas Cloud | 原生支持 | T2V / I2V / 参考 / 首尾帧 | 字节旗舰，原生音频/人声，4-30s，「一键整片」默认模型（$0.134/秒） |
-| **万相 3.0** 🆕 | Atlas Cloud | 原生支持 | T2V / I2V / 参考 | 省钱之选：$0.04/秒（约为 Seedance 2.5 的 1/3），同样支持 2-30s，默认原生 1080p，带音轨同价 |
-| **万相 3.0 Prime** 🆕 | Atlas Cloud | 原生支持 | T2V / I2V / 参考 | 万相高配档，$0.061/秒，2-30s |
-| **MiniMax H3 Max** 🆕 | Atlas Cloud | - | T2V / I2V | 逐镜生成划算之选，$0.048/秒，5-15s，原生最高 768P（无参考生视频，一键整片用不了） |
-| **Seedance 2.0** | Atlas Cloud | 原生支持 | T2V / I2V / 参考 / 首尾帧 | 原生音频，4-15s，最高 1440p |
-| **MiniMax H3** 🆕 | Atlas Cloud | 原生立体声 | T2V / I2V / 参考 / 首尾帧 | 海螺 3.0 全模态，2K，4-15s，图/视频/音频混合参考保主体；单价最低 $0.038/秒，但单次上限 15 秒 |
-| **Kling O3** 🆕 | Atlas Cloud | 原生支持 | T2V / I2V / 参考 / 首尾帧 | 快手全模态 MVL，多镜头叙事 3-15s |
-| **Veo 3.1** 🆕 | Atlas Cloud / fal.ai | 原生支持 | T2V / I2V / 首尾帧 | Google 旗舰，4/6/8s，最高 4K |
-| **万相 2.7** 🆕 | Atlas Cloud | 原生支持 | T2V / I2V / 参考 / 首尾帧 | 多镜头叙事+音画同步，参考模式支持声音克隆 |
-| **Seedance 2.0 Mini** 🆕 | Atlas Cloud | 原生支持 | T2V / I2V / 参考 / 首尾帧 | 轻量经济版，跑量出片降成本 |
-| **Kling 3.0 Pro** | fal.ai / Atlas Cloud | 原生支持 | T2V / I2V | 可灵，多分镜+人脸绑定 |
-| **Vidu Q3 Pro** | Atlas Cloud | - | T2V / I2V / 首尾帧 | 首尾帧过渡（转场神器） |
-| **Hailuo 2.3** | Atlas Cloud / fal.ai | - | T2V / I2V | MiniMax 海螺，运动物理逼真，6/10s |
-| **Luma Ray 2** | fal.ai | - | T2V / I2V | 真实运动和物理效果 |
-| **Seedance 1.5 Pro** | 火山引擎 / Atlas Cloud | - | T2V / I2V | 字节豆包，电影级画质 |
-| **万相 2.6** | 阿里百炼 | - | I2V | 商品图生视频效果好 |
+能力属于**具体端点**，不是品牌名称：文生视频端点不等于首尾帧端点，也不等于多参考端点。请求构造和导演台共用一份契约注册表；无法满足硬性首尾帧或参考约束时，提交前明确报错，不会静默丢弃条件后付费。自定义未核对端点需要单独验证。
 
-> **省钱提示：** 默认的 Seedance 2.5 画质与原生人声最好，但也最贵（$0.134/秒）。**分辨率比换模型更能省**——实测同一条片 1080p 约为 480p 基准价的 4.5 倍、720p 约 2 倍，ClipForge 默认已用 720p。想再省就换模型：一键整片推荐 **万相 3.0**（$0.04/秒），逐镜生成推荐 **MiniMax H3 Max**（$0.048/秒）。详见[教程的费用章节](TUTORIAL.md#71-先说钱一条多少)。
->
-> 以上是内置精选（含中文名与能力守卫）。启用 Atlas Cloud 后，设置页还会**动态发现全站 200+ 视频模型**（Youchuan、HappyHorse、Grok Imagine、Gemini Omni Flash……含单价标注），提交时按各模型公开 schema 自动构参——平台上新模型无需等软件升级。
+默认整片链路选择支持多参考与原生音频的端点。编辑请求保留已提供的商品/人物参考；九宫格联合生成有助于约束外观，但不能保证脸、服装、商品在实际生成中绝对不漂移，交付前仍需逐镜质检。
 
-### 图片生成
-
-| 模型 | 平台 | 特点 |
-|------|------|------|
-| **GPT Image 2** ⭐ | Atlas Cloud | OpenAI 最新，任意分辨率，商品图质感好，支持自然语言编辑（换背景/打光/改文字） |
-| **Nano Banana 2** | Atlas Cloud | Google，强一致性图像编辑 |
-| **FLUX.2 Pro** | fal.ai | 最新一代高质量生图 |
-| **Recraft V4 Pro** | fal.ai | 设计风格突出 |
-| **Seedream 5.0 Lite** | 火山引擎 / Atlas Cloud | 字节最新，中文优化，支持 edit 锁定主体重绘 |
-| **万相** | 阿里百炼 | 商品场景友好 |
-
-> T2V = 文生视频, I2V = 图生视频。支持音频的模型直接输出带配音的视频，不支持的静默输出。
-> 带货场景建议优先用 **edit 类模型**（GPT Image 2 / Seedream edit）对商品原图重绘背景，锁定商品主体不被篡改。
+费用、账户权限与模型可用性以自己的 Fal 账户为准。旧 Atlas 单价及“200+ 模型动态发现”说明不适用于此分支。详见[迁移审查与真实生成验收清单](docs/fal-migration-review.md)。
 
 ---
 

@@ -70,11 +70,11 @@ describe("isRetryableTTSError（确定性失败不重试，瞬时失败重试）
   it("401/403/422/404/400 → 不重试；408/429/5xx/无状态码 → 重试", async () => {
     const { isRetryableTTSError } = await import("@/lib/tts");
     expect(isRetryableTTSError(new Error("TTS 请求失败: 401 Unauthorized - bad key"))).toBe(false);
-    expect(isRetryableTTSError(new Error("Atlas TTS 提交失败: 403 - forbidden"))).toBe(false);
+    expect(isRetryableTTSError(new Error("Fal TTS 提交失败: 403 - forbidden"))).toBe(false);
     expect(isRetryableTTSError(new Error("MiniMax TTS 请求失败: 422 - bad voice"))).toBe(false);
     expect(isRetryableTTSError(new Error("TTS 请求失败: 429 Too Many Requests"))).toBe(true);
     expect(isRetryableTTSError(new Error("fal TTS 提交失败: 503 - upstream"))).toBe(true);
     expect(isRetryableTTSError(new Error("fetch failed"))).toBe(true);
-    expect(isRetryableTTSError(new Error("Atlas TTS 轮询超时"))).toBe(true);
+    expect(isRetryableTTSError(new Error("Fal TTS 轮询超时"))).toBe(true);
   });
 });

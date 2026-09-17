@@ -246,6 +246,8 @@ export interface AIProvider {
    * when the provider remaps it, e.g. text-to-video → image-to-video).
    * Optional: providers without async task support keep using generateVideo only.
    */
+  /** Submit an image task and persist its handle before waiting, just like video. */
+  submitImageTask?(options: ImageOptions): Promise<{ taskId: string; modelId: string }>
   submitVideoTask?(options: VideoOptions): Promise<{ taskId: string; modelId: string }>
 
   /**

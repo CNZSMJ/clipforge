@@ -1,3 +1,4 @@
+import { markAiTaskDownloaded } from "@/lib/ai-tasks";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { assets } from "@/lib/db/schema";
@@ -42,7 +43,7 @@ export async function POST(
     const body = await req.json();
     const { shotId, sourceUrl } = body as { shotId?: number; sourceUrl?: string };
 
-    if (typeof shotId !== "number" || !sourceUrl) {
+    if (!Number.isInteger(shotId) || typeof shotId !== "number" || shotId < 0 || typeof sourceUrl !== "string" || !sourceUrl) {
       return NextResponse.json({ error: "缺少 shotId 或 sourceUrl" }, { status: 400 });
     }
     // 校验 projectId 防路径穿越
@@ -70,7 +71,7 @@ export async function POST(
         ? body.thumbnailPath
         : undefined;
 
-    return NextResponse.json(await saveAssetCandidate({
+    const saved = await saveAssetCandidate({
       projectId: id,
       shotId,
       type: assetType,
@@ -80,7 +81,9 @@ export async function POST(
       model: body.model,
       prompt: body.prompt,
       generationPlan,
-    }));
+    });
+    await markAiTaskDownloaded(id, shotId, sourceUrl, filePath);
+    return NextResponse.json(saved);
   } catch (error) {
     console.error("保存素材失败:", error);
     return NextResponse.json(

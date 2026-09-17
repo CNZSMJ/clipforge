@@ -52,9 +52,9 @@ Drive ClipForge's text-to-video pipeline from any MCP client (Claude Desktop / C
 | 变量 | 必需 | 说明 |
 |------|:---:|------|
 | `CLIPFORGE_BASE_URL` | — | ClipForge 实例地址，默认 `http://localhost:3000` |
-| `CLIPFORGE_LLM_BASE_URL` | 写脚本时 | OpenAI 兼容接口，如 `https://api.atlascloud.ai/v1` |
+| `CLIPFORGE_LLM_BASE_URL` | 写脚本时 | OpenAI 兼容接口，如 `https://fal.run/openrouter/router/openai/v1` |
 | `CLIPFORGE_LLM_API_KEY` | 写脚本时 | LLM Key |
-| `CLIPFORGE_LLM_MODEL` | 写脚本时 | 模型名，如 `deepseek-ai/deepseek-v4-pro` |
+| `CLIPFORGE_LLM_MODEL` | 写脚本时 | 模型名，如 `google/gemini-2.5-flash` |
 | `CLIPFORGE_PEXELS_KEY` | — | 配了才用 Pexels 实拍**视频** B-roll（免费申请） |
 | `CLIPFORGE_PIXABAY_KEY` | — | 配了才用 Pixabay 实拍**视频** B-roll（免费申请） |
 
@@ -70,9 +70,9 @@ Drive ClipForge's text-to-video pipeline from any MCP client (Claude Desktop / C
       "args": ["/绝对路径/clipforge/mcp/clipforge-mcp.mjs"],
       "env": {
         "CLIPFORGE_BASE_URL": "http://localhost:3000",
-        "CLIPFORGE_LLM_BASE_URL": "https://api.atlascloud.ai/v1",
+        "CLIPFORGE_LLM_BASE_URL": "https://fal.run/openrouter/router/openai/v1",
         "CLIPFORGE_LLM_API_KEY": "sk-...",
-        "CLIPFORGE_LLM_MODEL": "deepseek-ai/deepseek-v4-pro"
+        "CLIPFORGE_LLM_MODEL": "google/gemini-2.5-flash"
       }
     }
   }
@@ -100,9 +100,9 @@ Use the versioned MCP package attached to the GitHub Release with Node.js 18 or 
       "args": ["-y", "--package", "https://github.com/xixihhhh/clipforge/releases/download/v0.9.7/clipforge-mcp-0.1.6.tgz", "clipforge-mcp"],
       "env": {
         "CLIPFORGE_BASE_URL": "http://localhost:3000",
-        "CLIPFORGE_LLM_BASE_URL": "https://api.atlascloud.ai/v1",
+        "CLIPFORGE_LLM_BASE_URL": "https://fal.run/openrouter/router/openai/v1",
         "CLIPFORGE_LLM_API_KEY": "sk-...",
-        "CLIPFORGE_LLM_MODEL": "deepseek-ai/deepseek-v4-pro"
+        "CLIPFORGE_LLM_MODEL": "google/gemini-2.5-flash"
       }
     }
   }

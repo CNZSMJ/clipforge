@@ -1,3 +1,4 @@
+import { llmAuthHeaders } from "@/lib/llm-models";
 /**
  * LLM client factory + failure messages for OpenAI-compatible endpoints.
  *
@@ -212,6 +213,7 @@ export function createLLMClient(config: LLMClientConfig): OpenAI {
   return new OpenAI({
     baseURL: config.baseUrl ? normalizeChatBase(config.baseUrl) : config.baseUrl,
     apiKey: config.apiKey || "no-key",
+    defaultHeaders: llmAuthHeaders(config.baseUrl, config.apiKey || "no-key"),
     // SDK default is 2; free/shared endpoints flap enough to be worth one more attempt.
     maxRetries: 3,
     // Cap recovery and optional-param recovery apply everywhere (our params, our problem); the

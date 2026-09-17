@@ -83,8 +83,8 @@ export async function GET() {
     // 云端任务状态未知时提供恢复入口；提交状态不代表已结算扣费。
     const paid = await db.select().from(aiTasks).where(inArray(aiTasks.status, ACTIVE_AI_TASK_STATUSES));
     for (const tsk of paid) {
-      (tsk.status === "unknown" ? attention : active).push({
-        kind: tsk.status === "unknown" ? "paid_unknown" : "paid",
+      (["unknown", "download_pending"].includes(tsk.status) ? attention : active).push({
+        kind: ["unknown", "download_pending"].includes(tsk.status) ? "paid_unknown" : "paid",
         id: tsk.id,
         projectId: tsk.projectId,
         projectName: tsk.projectId ? projectName.get(tsk.projectId) ?? "" : "",

@@ -26,12 +26,17 @@ export function isBlockedIp(ip: string): boolean {
     return false;
   }
   if (net.isIPv6(ip)) {
-    const low = ip.toLowerCase();
+    const low = new URL(`http://[${ip}]/`).hostname.slice(1, -1).toLowerCase();
     if (low === "::1" || low === "::") return true; // loopback / unspecified
-    if (low.startsWith("fe80")) return true; // link-local
+    if (/^fe[89ab]/.test(low)) return true; // link-local
     if (low.startsWith("fc") || low.startsWith("fd")) return true; // fc00::/7 ULA
-    const mapped = low.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/); // IPv4-mapped
-    if (mapped) return isBlockedIp(mapped[1]);
+    if (low.startsWith("ff")) return true; // multicast
+    const mapped = low.match(/^::ffff:([0-9a-f]+):([0-9a-f]+)$/);
+    if (mapped) {
+      const high = parseInt(mapped[1], 16), lowPart = parseInt(mapped[2], 16);
+      return isBlockedIp(`${high >>> 8}.${high & 255}.${lowPart >>> 8}.${lowPart & 255}`);
+    }
+    if (/^::[0-9a-f:]+$/.test(low)) return true; // deprecated IPv4-compatible / unspecified range
     return false;
   }
   return true; // invalid IP — block unconditionally
@@ -46,6 +51,7 @@ export async function assertPublicUrl(rawUrl: string): Promise<void> {
     throw new Error("非法 URL");
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("仅支持 http/https");
+  if (u.username || u.password) throw new Error("媒体 URL 不得携带身份凭据");
   // Strip brackets from IPv6 literals (URL.hostname keeps brackets for [::1], which causes net.isIP to fail and fall through to DNS)
   const host = u.hostname.replace(/^\[/, "").replace(/\]$/, "");
   let ips: string[];
@@ -71,7 +77,14 @@ export async function safeFetch(url: string, init: RequestInit = {}, maxRedirect
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get("location");
       if (!loc) return res;
-      current = new URL(loc, current).href; // resolve potentially relative redirect locations
+      const next = new URL(loc, current).href;
+      await res.body?.cancel().catch(() => undefined);
+      if (new URL(next).origin !== new URL(current).origin) {
+        const headers = new Headers(init.headers);
+        headers.delete("authorization"); headers.delete("cookie"); headers.delete("proxy-authorization");
+        init = { ...init, headers };
+      }
+      current = next;
       continue;
     }
     return res;

@@ -20,8 +20,8 @@ describe("fal video request building", () => {
     expect(body.image_url).toBe("https://cdn/first.png");
     expect(body.end_image_url).toBe("https://cdn/last.png");
     expect(body.resolution).toBe("720p");
-    expect(body.aspect_ratio).toBe("9:16");
-    expect(body.duration).toBe(12);
+    expect(body.aspect_ratio).toBe("auto");
+    expect(body.duration).toBe("12");
   });
 
   it("Kling v3 pro i2v drives from start_image_url, not image_url", () => {
@@ -78,8 +78,8 @@ describe("fal video request building", () => {
       width: 1920,
       height: 1080,
     });
-    // ties resolve to the smaller legal value, matching the shared pickEnumDuration convention
-    expect(body.duration).toBe("6s");
+    // Preserve dialogue: choose a legal duration no shorter than the script.
+    expect(body.duration).toBe("8s");
     expect(body.resolution).toBe("1080p");
     expect(body.aspect_ratio).toBe("16:9");
   });
@@ -89,7 +89,6 @@ describe("fal video request building", () => {
       ...base,
       modelId: "fal-ai/minimax/hailuo-2.3/pro/image-to-video",
       firstFrameUrl: "https://cdn/first.png",
-      lastFrameUrl: "https://cdn/last.png",
       width: 720,
       height: 1280,
     });
@@ -102,7 +101,7 @@ describe("fal video request building", () => {
   it("falls back to naming conventions for custom endpoints", () => {
     expect(getFalVideoSpec("acme/custom/image-to-video").firstFrame).toBe("image_url");
     expect(getFalVideoSpec("acme/custom/start-end-to-video").lastFrame).toBe("end_image_url");
-    expect(falFrameSibling("acme/custom/text-to-video", true)).toBe("acme/custom/image-to-video");
+    expect(falFrameSibling("acme/custom/text-to-video", true)).toBeUndefined();
   });
 });
 
@@ -122,13 +121,12 @@ describe("MiniMax Hailuo 3.0 (fal id hailuo-03)", () => {
     // the i2v endpoint declares no aspect_ratio
     expect(short.body.aspect_ratio).toBeUndefined();
 
-    const long = buildFalVideoRequest({
+    expect(() => buildFalVideoRequest({
       ...base,
       modelId: "fal-ai/minimax/hailuo-03/image-to-video",
       firstFrameUrl: "https://cdn/first.png",
       duration: 40,
-    });
-    expect(long.body.duration).toBe(15);
+    })).toThrow(/最多支持/);
   });
 
   it("reference-to-video uses the reference_*_urls field names", () => {
@@ -164,7 +162,7 @@ describe("no silent frame loss", () => {
   it("throws when a first frame is given to a text-to-video endpoint with no i2v sibling", () => {
     expect(() =>
       buildFalVideoRequest({ ...base, modelId: "fal-ai/veo3", firstFrameUrl: "https://cdn/first.png" })
-    ).toThrow(/文生视频端点/);
+    ).toThrow(/不接受首帧图/);
   });
 
   it("chaining is enabled for every fal endpoint that declares an end-frame field", () => {
