@@ -1,130 +1,71 @@
-name: Verify keyframe workspace
+name: Export verified keyframe blobs
 on:
   push:
     branches: [feat/fal-migration]
-    paths:
-      - .github/keyframe-review/**
-      - .github/apply-keyframe-review.py
-      - .github/workflows/keyframe-review.yml
+    paths: [.github/workflows/keyframe-review.yml]
 permissions:
   contents: read
-concurrency:
-  group: keyframe-review
-  cancel-in-progress: false
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Apply audited patch and validate exact source tree
-        run: python3 .github/apply-keyframe-review.py
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: Install media tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk
-      - name: Install locked dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Typecheck
-        run: pnpm exec tsc --noEmit
-      - name: Lint
-        run: set -o pipefail; pnpm lint 2>&1 | tee /tmp/keyframe-lint.log
-      - name: Full regression tests
-        run: pnpm exec vitest run --reporter=default --reporter=json --outputFile=/tmp/keyframe-tests.json
-      - name: Production build
-        run: set -o pipefail; pnpm build 2>&1 | tee /tmp/keyframe-build.log
-      - name: Install browser-test client
-        run: python3 -m pip install --disable-pip-version-check playwright==1.57.0
-      - name: Real browser workflow without paid inference
-        env:
-          KEYFRAME_BROWSER_TEST: '1'
-          APP_DATA_DIR: ${{ runner.temp }}/keyframe-browser-data
-          KEYFRAME_BROWSER_ARTIFACTS: ${{ runner.temp }}/keyframe-browser-evidence
-        run: |
-          node scripts/seed-keyframe-browser.cjs
-          pnpm exec next start -p 3107 > "$RUNNER_TEMP/keyframe-browser-server.log" 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          for i in $(seq 1 60); do
-            if curl --fail --silent http://localhost:3107/api/health > /dev/null; then break; fi
-            sleep 1
-          done
-          set -o pipefail
-          python3 scripts/check-keyframe-browser.py 2>&1 | tee "$RUNNER_TEMP/keyframe-browser-client.log"
-      - name: Confirm verification preserved source tree
-        run: git diff --exit-code && test "$(git write-tree)" = 947ac6dd7b748a2af93d3048fc6941f53cb52161
-      - name: Preserve verification evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: keyframe-verification
-          path: |
-            /tmp/keyframe-tests.json
-            /tmp/keyframe-build.log
-            /tmp/keyframe-lint.log
-            ${{ runner.temp }}/keyframe-browser-evidence
-            ${{ runner.temp }}/keyframe-browser-server.log
-            ${{ runner.temp }}/keyframe-browser-client.log
-          retention-days: 14
-  prepare-commit:
-    needs: verify
+  export:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Rebuild exact verified source tree
+      - name: Reconstruct the already-tested exact source tree
         run: python3 .github/apply-keyframe-review.py
-      - name: Create verified Git objects without updating any branch
+      - name: Export non-workflow blobs without committing or updating refs
         env:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_HEAD: ${{ github.sha }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib, subprocess, urllib.request
-          repo = 'CNZSMJ/clipforge'
-          api = 'https://api.github.com/repos/' + repo
+          api = 'https://api.github.com/repos/CNZSMJ/clipforge'
           def request(path, data=None):
               req = urllib.request.Request(api + path,
                   data=None if data is None else json.dumps(data).encode(),
-                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
-                    'Accept':'application/vnd.github+json', 'Content-Type':'application/json',
+                  headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                    'Accept':'application/vnd.github+json','Content-Type':'application/json',
                     'X-GitHub-Api-Version':'2022-11-28'})
               with urllib.request.urlopen(req, timeout=60) as response:
                   return json.load(response)
+          verified = request('/actions/runs/35277752986/jobs?per_page=100')['jobs']
+          if not any(j['name']=='verify' and j['conclusion']=='success' for j in verified):
+              raise RuntimeError('Source verification did not pass')
           parent = os.environ['EXPECTED_HEAD']
           if request('/git/ref/heads/feat/fal-migration')['object']['sha'] != parent:
-              raise RuntimeError('Concurrent branch change; refusing publication')
-          base = request('/git/commits/' + parent)['tree']['sha']
+              raise RuntimeError('Concurrent feature change')
+          expected = '947ac6dd7b748a2af93d3048fc6941f53cb52161'
+          if subprocess.check_output(['git','write-tree'],text=True).strip() != expected:
+              raise RuntimeError('Source differs from verified tree')
           fields = subprocess.check_output(['git','diff','--cached','--name-status','--no-renames','-z','HEAD']).decode().split('\0')
           entries = []
           for i in range(0,len(fields)-1,2):
               status, name = fields[i:i+2]
               if status == 'D':
                   entries.append({'path':name,'mode':'100644','type':'blob','sha':None})
-              else:
-                  mode = subprocess.check_output(['git','ls-files','--stage','--',name],text=True).split()[0]
-                  entries.append({'path':name,'mode':mode,'type':'blob','content':pathlib.Path(name).read_text()})
-          tree = request('/git/trees', {'base_tree':base, 'tree':entries})['sha']
-          if tree != '947ac6dd7b748a2af93d3048fc6941f53cb52161':
-              raise RuntimeError('Remote tree differs from tested tree: ' + tree)
-          commit = request('/git/commits', {'tree':tree, 'parents':[parent],
-              'message':'feat(keyframes): ship reference-aware image planning and approval workspace\n\nProject/scene art direction, role-scoped reference inputs, physically grounded single-frame specifications, candidate corrections, scene anchors, optional paid planning/QC, recoverable single-submit jobs and downstream video/composition approval gates. Beginner-friendly bilingual UI, migration and 79 regression cases. Exact tree verified by typecheck, lint, full suite, production build and real desktop/mobile browser workflow. No live paid inference or claimed visual success-rate uplift. Remove temporary review transport.'})['sha']
-          pathlib.Path('/tmp/keyframe-publish.json').write_text(json.dumps({'parent':parent,'tree':tree,'commit':commit},indent=2))
-          print('Prepared verified commit:', commit)
+                  continue
+              mode, sha = subprocess.check_output(['git','ls-files','--stage','--',name],text=True).split()[:2]
+              content = pathlib.Path(name).read_text()
+              if name.startswith('.github/workflows/'):
+                  # Workflow writes remain with the authorized connector, not this job token.
+                  entries.append({'path':name,'mode':mode,'type':'blob','content':content})
+                  continue
+              actual = request('/git/blobs', {'content':content,'encoding':'utf-8'})['sha']
+              if actual != sha: raise RuntimeError('Blob mismatch: '+name)
+              entries.append({'path':name,'mode':mode,'type':'blob','sha':sha})
+          manifest = {'parent':parent,'base_tree':request('/git/commits/'+parent)['tree']['sha'],
+                      'expected_tree':expected,'verified_run':35277752986,'tree':entries}
+          pathlib.Path('/tmp/keyframe-git-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
+          print('Exported',len(entries),'entries; no branch or commit was written.')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: keyframe-verified-commit
-          path: /tmp/keyframe-publish.json
+          name: keyframe-git-manifest
+          path: /tmp/keyframe-git-manifest.json
           retention-days: 14
