@@ -1,0 +1,65 @@
+<<<FILE src/lib/storyboard-film.ts 61890fdd84052932a9cd3b29c4a7bc6d9a3a0e283cfcff7d2ca0299ab7419173 e20e2bd92447bb73b02bd4c78c22461c6754414b780f715c08ab5a094ab8d3d6>>>
+<<<EDIT 0 0>>>
+import { sequenceContinuity, renderModeDirection, projectVisualDirection, isOffscreenNarration, type StoryboardRenderContext } from "@/lib/storyboard-render-direction";
+<<<EDIT 279 280>>>
+     * Raw phone-shot texture block (opt-in; never override a styled storyboard by default).
+<<<EDIT 284 284>>>
+    context?: StoryboardRenderContext;
+<<<EDIT 291 292>>>
+  // Single name is used only to label an actual identity reference, not to add a presenter.
+<<<EDIT 293 295>>>
+  const offscreen = isOffscreenNarration(opts?.context);
+<<<EDIT 325 327>>>
+    // disambiguating anchor); a voice identity does not imply that the speaker is visible
+    const speakerOfLine = s.characterId ? charById.get(s.characterId) : undefined;
+<<<EDIT 333 333>>>
+    const delivery = line && (!speakerOfLine || offscreen || s.speakerVisible === false)
+      ? (zh ? "画外配音，不添加说话人物或口型。" : "Offscreen voice; do not add a talking person or lip movement. ") : "";
+<<<EDIT 336 337>>>
+      return `[${fmtSec(start)}-${fmtSec(cursor)}秒] 镜头${i + 1}（${label}，画面以 @图片${imgN} 为基准）：${s.description ?? ""}。${camPart}${delivery}${dialogue}`;
+<<<EDIT 340 341>>>
+    return `[${fmtSec(start)}-${fmtSec(cursor)}s] Shot ${i + 1} (${label}, framing follows @Image${imgN}): ${s.description ?? ""}. ${camPart}${delivery}${dialogue}`;
+<<<EDIT 358 359>>>
+  const realism = opts?.realism === true; // opt-in only; styled references remain authoritative
+<<<EDIT 377 378>>>
+      `画幅 ${opts?.aspectRatio ?? "9:16"} 按已批准分镜风格制作的短视频，总时长约 ${total} 秒，共 ${shots.length} 个镜头，严格按下面的时间段硬切，一次生成整片。`,
+<<<EDIT 380 381>>>
+      sequenceContinuity("zh"),
+      renderModeDirection(opts?.context, "zh"),
+      projectVisualDirection(opts?.context, "zh"),
+<<<EDIT 384 387>>>
+      `声音归属：有台词时逐字说出；仅在该镜明确显示说话角色且不是画外配音时，由该镜标注的角色自然说出台词并对齐口型。无 characterId 的旁白、主题视频与物品拟人保持画外；无台词的镜头不要出现说话声。`,
+<<<EDIT 391 392>>>
+      `画面中不出现任何字幕、新增文字、编号或水印，参考中的原有包装标识保留。不要字幕。`,
+<<<EDIT 400 401>>>
+    `Aspect ratio ${opts?.aspectRatio ?? "9:16"} short video in the approved storyboard style, about ${total} seconds total, ${shots.length} shots with hard cuts exactly at the timecodes below, generated as one continuous film.`,
+<<<EDIT 403 404>>>
+    sequenceContinuity("en"),
+    renderModeDirection(opts?.context, "en"),
+    projectVisualDirection(opts?.context, "en"),
+<<<EDIT 409 412>>>
+    `Voice attribution: speak lines verbatim. Only a speaker explicitly visible in the shot receives lip sync. Unassigned narration, topic narration and product personification stay offscreen; a silent shot has no speech.`,
+<<<EDIT 413 414>>>
+    `No added captions, text, numbers or watermarks. Preserve existing product markings from the references. No subtitles.`,
+<<<FILE src/lib/storyboard-grid.ts 39849e0f78ef28fea3dce5943e27d66a9a72963c780cefe929e6afc891e38517 e6781d1970b64e9f2ce4963faba4739f1a9f7b163c5a2492522a233a54a9a5ed>>>
+<<<EDIT 3 8>>>
+ * Shared reference conditioning reduces drift; it is not a guarantee of identical pixels.
+ * Each cell remains the approved shot's starting state, including intentional scene changes.
+<<<EDIT 15 16>>>
+import { sequenceContinuity, renderModeDirection, projectVisualDirection, type StoryboardRenderContext } from "@/lib/storyboard-render-direction";
+<<<EDIT 40 41>>>
+  refs?: { characterSheet?: boolean; productImage?: boolean },
+  context?: StoryboardRenderContext,
+<<<EDIT 44 45>>>
+    .filter((c) => c.name?.trim())
+    .map((c) => `${c.name}：${c.appearance ?? ""}`)
+<<<EDIT 50 51>>>
+    return `第 ${i + 1} 格（${label}）：${s.description}${s.camera ? `；景别与机位：${s.camera}（仅画初始定格，不把运镜轨迹画进画面）` : ""}${s.prompt ? `；已批准首帧描述：${s.prompt}` : ""}${s.speakerVisible === false ? "；该镜配音在画外，不新增说话人物或口型" : ""}`;
+<<<EDIT 72 73>>>
+    sequenceContinuity("zh"),
+    renderModeDirection(context, "zh"),
+    projectVisualDirection(context, "zh"),
+<<<EDIT 77 80>>>
+    `质感服从已批准脚本的媒介、主色、材质与光源，不自动改成手机UGC、真人摄影或重金属风。每格仅一个时刻，起始状态与后续主动作相容，不能把动作结束状态提前画入首帧。`,
+    cells.length < GRID_MAX_SHOTS ? `只讲前 ${cells.length} 格的故事；剩余格重复最后一格的中性环境，不增加角色、事件或文字，裁切流程不会使用它们。` : "",
+    `硬性要求：严格等分九宫格；画面不新增文字、字幕、编号、水印或边框装饰；商品原有包装文字与标识按参考保留；每格都是完整可独立使用的镜头画面。`,

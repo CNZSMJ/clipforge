@@ -1,0 +1,166 @@
+<<<FILE src/lib/__tests__/motion-prompt.test.ts c2c83d0343b4a1386e3e97c4855de7d5c7ef553e564e4d8f771c1cb746a161d1 60cc4dca59584e31148c474b37b2e168fcd1e3ca98ca4e91a479deb5cf2f909d>>>
+<<<EDIT 12 13>>>
+    expect(p).toContain("保持主体静置");
+<<<EDIT 43 45>>>
+  it("完整保留已批准动作与末尾状态，不再只取前60字符", () => {
+    const long = "浅灰桌面，白色方形盒正面朝左，顶盖闭合。".repeat(5) + "顶盖打开到一半后停住，盒内配件仍在原位。";
+<<<EDIT 46 48>>>
+    expect(p).toContain(`场景：${long}`);
+    expect(p).toContain("顶盖打开到一半后停住");
+<<<EDIT 103 104>>>
+  it("有脚本时保持批准的表演，不凭talking标记追加手势或改成对镜说话", () => {
+<<<EDIT 105 107>>>
+    expect(zh).toContain("场景：小美对镜头说话");
+    expect(zh).not.toContain("极短的停顿");
+<<<EDIT 108 109>>>
+    expect(en).toContain("Scene: a woman talks");
+    expect(en).not.toContain("talks naturally to camera");
+<<<EDIT 110 111>>>
+    expect(buildMotionPrompt({ shotType: "hook", description: "开场" })).toContain("仅执行已批准分镜");
+    expect(buildMotionPrompt({ shotType: "hook", talking: true })).toContain("对着镜头自然说话");
+<<<EDIT 124 125>>>
+  it("有明确脚本时不强制写实肤质；后期配音模式仍禁止随机人声", () => {
+<<<EDIT 126 127>>>
+    expect(p).not.toContain("网红脸"); // 不覆盖动画/展陈等已批准媒介
+<<<EDIT 144 147>>>
+  it("无脚本与模式限制时 demo/product_reveal + 品类 → 画面动态里拼一条「动作+材质反应」短语，beatSeed 确定性轮换", () => {
+    const a = buildMotionPrompt({ shotType: "demo", category: "food", beatSeed: 0 });
+    const b = buildMotionPrompt({ shotType: "demo", category: "food", beatSeed: 1 });
+<<<EDIT 150 151>>>
+    expect(buildMotionPrompt({ shotType: "demo", category: "food", beatSeed: 0 })).toBe(a);
+<<<EDIT 158 160>>>
+  it("无脚本时 personShot → 活背景一条 + 头发衣料滞后回弹；非人非 demo 镜不加", () => {
+    const person = buildMotionPrompt({ shotType: "pain_point", personShot: true, beatSeed: 0 });
+<<<EDIT 168 169>>>
+    const silent = buildMotionPrompt({ shotType: "pain_point", personShot: true, beatSeed: 0 });
+<<<EDIT 170 171>>>
+    const talking = buildMotionPrompt({ shotType: "pain_point", personShot: true, talking: true, beatSeed: 0 });
+<<<EDIT 187 188>>>
+    const p = buildMotionPrompt({ shotType: "demo", camera: "smooth follow", productShot: true, personShot: true, category: "beauty", beatSeed: 0 });
+<<<FILE src/lib/__tests__/presenters.test.ts cf5d5b31006a3c2c4ac582a32d29a3ffb835b4924a452cbc38c7d0f9dad44ada 104f88e385f3032ab779282b2cab82ff6b3412656502c763cdf89194fef50e56>>>
+<<<EDIT 37 38>>>
+  it("缺省表演可用既有人脸约束，但明确脚本不自动改变媒介", () => {
+<<<EDIT 39 40>>>
+    expect(zh).not.toContain("网红脸");
+    expect(buildMotionPrompt({ personShot: true })).toContain("网红脸");
+<<<EDIT 41 42>>>
+    expect(en).not.toContain("influencer");
+    expect(buildMotionPrompt({ camera: "static", personShot: true })).toContain("influencer");
+<<<EDIT 45 46>>>
+  it("对白风格定义独立声音角色并遵守模式，不强制同一种素人媒介", () => {
+<<<EDIT 47 49>>>
+      expect(stylePrompts[s], s).toContain("characterId");
+      expect(stylePrompts[s], s).toContain("画外");
+      expect(stylePrompts[s], s).not.toContain("内置素人主播库");
+<<<EDIT 77 78>>>
+  it("主播规则保留为工具，风格不会无条件注入皮肤与手机首帧要求", () => {
+<<<EDIT 79 81>>>
+      expect(stylePrompts[s], s).toContain("视觉执行");
+      expect(stylePrompts[s], s).toContain("连续性");
+      expect(stylePrompts[s], s).not.toContain("光要写满四要素");
+<<<FILE src/lib/__tests__/storyboard-film.test.ts 0250fe8e69ea060e3cf70ad2e93785e8ef2ba0e46db067f261b3f2918c9f49c7 01a72786cef0b4b39e13bd51c83a665c8607e5cf288c4fe450d4e90e8de00314>>>
+<<<EDIT 81 84>>>
+  it("手机真实感改为显式开启，默认与false均服从已批准媒介", () => {
+    expect(prompt).not.toContain("真实手机直出质感");
+    const raw = buildStoryboardFilmPrompt(zhShots, undefined, undefined, { realism: true });
+    expect(raw).toContain("真实手机直出质感");
+    expect(raw).toContain("保留毛孔细节");
+<<<EDIT 88 89>>>
+  it("只有角色表但没有逐镜声音归属时，不擅自加对镜口播", () => {
+<<<EDIT 90 91>>>
+    expect(withCast).toContain("小夏（邻家）");
+    expect(withCast).not.toContain("小夏对着镜头自然说话");
+    expect(withCast).toContain("画外配音，不添加说话人物或口型");
+<<<EDIT 213 214>>>
+  it("单角色也使用逐镜说话者归属，不全局强制对镜口播", () => {
+<<<EDIT 216 219>>>
+    expect(p).not.toContain("小美对着镜头自然说话");
+    expect(p).toContain("台词（逐字说出，由小美（32岁低马尾）说出）：{你这纸巾一擦就破？}");
+<<<EDIT 241 242>>>
+    expect(p).toContain("Only a speaker explicitly visible");
+<<<FILE src/lib/__tests__/storyboard-grid.test.ts d32e8300b71e6ac7ab220e3299bf617cf3d2ce923d563280f3af99713f42b337 fe50c350f60dba1ce9027591ec3a6cf9a4649a4ba78b2aab4a5a3af169a8ba1c>>>
+<<<EDIT 13 14>>>
+  it("场景内一致性与原有标识保留，媒介由批准脚本决定", () => {
+<<<EDIT 15 16>>>
+    expect(p).toContain("同一场景内保持布局");
+    expect(p).toContain("明确换景/换时段时建立新场景");
+<<<EDIT 19 22>>>
+    expect(p).not.toContain("不是精修网红脸");
+    expect(p).toContain("质感服从已批准脚本的媒介");
+    expect(p).toContain("画面不新增文字");
+    expect(p).toContain("商品原有包装文字与标识按参考保留");
+<<<FILE src/lib/__tests__/variation-antihomogeneity.test.ts 5eb7cc6de2eaad584e675e6c843daaae3bbdd3e21d0113d039ab4dec31e0c9ab ac6329a073c43de7792579f8134fa2deaae2cb24b2f9b9c5dfa2163e02e516bb>>>
+<<<EDIT 65 66>>>
+    expect(prompt).toContain("本次开场【必须】优先使用以下钩子机制");
+    expect(prompt).toContain("事实不足/模式不兼容时以真实问题替代");
+<<<FILE src/lib/assets-view.ts ab1258801311f4d5ffc638687851cf13707ca61e887d6d0c6a665f30986c66f1 ca32d776f6c3bec059dd965e85187d30b5451a4d65d240f387d6c867041cc927>>>
+<<<EDIT 16 17>>>
+  /** Voice identity; not sufficient to imply that a person is on camera. */
+<<<EDIT 18 19>>>
+  speakerVisible?: boolean;
+  /** Narration/dialogue line; speakerVisible distinguishes voiceover from on-camera speech. */
+<<<EDIT 104 104>>>
+        ...(typeof s.speakerVisible === "boolean" && { speakerVisible: s.speakerVisible }),
+<<<EDIT 124 124>>>
+      ...(typeof s.speakerVisible === "boolean" && { speakerVisible: s.speakerVisible }),
+<<<FILE src/lib/db/schema.ts 0b88a3fb0b17e51670ac461c73846a4ad9c39b64de7059e7a3f30a4752f0794b 167346a5d4b0d126dfae8c13603e01d473a1793831b1891c4cb039fa5d86abfe>>>
+<<<EDIT 414 415>>>
+  /** Voice identity, references the script cast or characters table (optional). */
+<<<EDIT 416 416>>>
+  /** Whether that speaking character is visible in this shot; false means voiceover.
+   * Stored inside existing shots JSON (no SQL migration); omitted on legacy scripts. */
+  speakerVisible?: boolean;
+<<<FILE src/lib/motion-prompt.ts d61f56b492e68d487777fe28f1a789fe3ccda1d7e4e0be5906a17320642475d0 fe430413b35f93fefd2f25f6c99d892aee4148a06430cae28656be85a1d83980>>>
+<<<EDIT 22 22>>>
+import { renderModeDirection } from "@/lib/storyboard-render-direction";
+<<<EDIT 32 33>>>
+  /** Approved shot direction; preserve the action and its ending state, not just the first 60 characters */
+<<<EDIT 34 34>>>
+  /** Saved project boundary; voiceover character IDs do not necessarily denote visible humans. */
+  videoMode?: string | null;
+  styleType?: string | null;
+  /** Native dialogue is directed by the control plan; otherwise speech is added in post. */
+  nativeAudio?: boolean;
+<<<EDIT 312 314>>>
+<<<EDIT 321 321>>>
+  if (input.styleType === "product_pov" || ["product_closeup", "graphic_montage", "scene_demo"].includes(input.videoMode ?? "")) {
+    input = { ...input, personShot: false, talking: false };
+  }
+<<<EDIT 335 336>>>
+  const anchor = (input.description ?? "").trim();
+  const restrictedPeople = Boolean(input.videoMode && input.videoMode !== "live_presenter") || input.styleType === "product_pov";
+  const fullRealism = realism === "auto" && !anchor && !restrictedPeople;
+<<<EDIT 338 339>>>
+  let action = anchor
+    ? (lang === "zh"
+      ? "仅执行已批准分镜的主动作与状态进展，首帧固定主体与构图；没有明确主体动作时保持主体静置，仅执行指定运镜"
+      : "Execute only the approved shot action and state progression; the first frame anchors subject and composition. Without an explicit subject action, hold the subject still and use only the specified camera move")
+    : restrictedPeople
+      ? (lang === "zh" ? "保持首帧物品及其状态，仅执行指定运镜，不补充人物或手部动作" : "Hold the first-frame objects and their states; use only the specified camera move, without adding people or hand actions")
+    : input.talking
+<<<EDIT 349 350>>>
+<<<EDIT 369 370>>>
+    if (input.personShot && !anchor) parts.push(REAL_FACE_CONSTRAINT.zh);
+<<<EDIT 372 373>>>
+    if (input.videoMode || input.styleType === "product_pov") parts.push(renderModeDirection(input, "zh"));
+    parts.push(input.nativeAudio ? "音效：遵循单独给出的原生声音指令，台词与画内/画外归属严格按分镜，不编造额外对白或音乐" : SOUND_DIRECTION.zh);
+<<<EDIT 386 387>>>
+  if (input.personShot && !anchor) parts.push(REAL_FACE_CONSTRAINT.en);
+<<<EDIT 389 390>>>
+  if (input.videoMode || input.styleType === "product_pov") parts.push(renderModeDirection(input, "en"));
+  parts.push(input.nativeAudio ? "Sound: follow the separately supplied native audio direction and the shot's on/offscreen voice attribution; invent no additional dialogue or music" : SOUND_DIRECTION.en);
+<<<FILE src/lib/replicate-plan.ts 4c959dd1b4b0e048b298af324d53191e48fdb464eea0fdaf9c324dc01ad05271 c4de6445ea09704d6bedac7bf5f14563d34034deb9836c0e8ac05060124c636f>>>
+<<<EDIT 112 113>>>
+    `仅参考 视频1 的运镜节奏、景别组织与转场逻辑，针对当前商品创作新的观察切口与视觉记忆点；不复制参考片的台词、身份、品牌、数据或具体创意表达`,
+<<<EDIT 119 119>>>
+  parts.push("让一个真实用途或可见结构贯穿开场、证明与结果；各镜固定商品外观与场景内光线，动作状态连续，不为模仿参考动作改变商品功能；没有依据的测试结论省略");
+<<<FILE src/lib/script-engine/generator.ts 5b43b431e0e27a69fd1d45ae1aa81217ea4574b2a88c5a8dd4ec393a9ae77302 f1763fccb35c85885afbf79e65bdd1cd511f1a00e0a9c446070a792c5dd56be7>>>
+<<<EDIT 229 229>>>
+    ...(typeof shot.speakerVisible === "boolean" && { speakerVisible: shot.speakerVisible }),
+<<<FILE src/lib/script-engine/hook-patterns.ts b3569588096a6a6d39e7f91466225437b70f9c83513f3fcf718845ce36c77463 ac2b90de21bc6157962b5dd2c0d19ee5f05a9a4c05379bfe91747a39ff253a4a>>>
+<<<EDIT 239 241>>>
+        `   · 3–7s 接产品：${p.bridge}` +
+<<<EDIT 245 245>>>
+这些是结构候选，不是可直接引用的事实；任何测试、经历、价格或热度都要由输入材料支持。缺少证据或与视频模式冲突时保留观察/提问机制而不用虚构话术。
+<<<EDIT 252 253>>>
+    ? `本次开场【必须】优先使用以下钩子机制（反同质化轮换指定）；事实不足/模式不兼容时以真实问题替代，不捏造经历：`
