@@ -1,0 +1,91 @@
+name: Verify balanced model defaults
+on:
+  push:
+    branches: [feat/fal-migration]
+    paths: ['.github/workflows/balanced-defaults.yml', '.github/apply-balanced-defaults.py', '.github/balanced-defaults/**']
+permissions:
+  contents: read
+concurrency:
+  group: balanced-defaults-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'CNZSMJ/clipforge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      tree: ${{ steps.candidate.outputs.tree }}
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Apply reviewed changes on the current branch and record exact tree
+        id: candidate
+        run: |
+          set -euo pipefail
+          python3 .github/apply-balanced-defaults.py
+          git add -A
+          echo "tree=$(git write-tree)" >> "$GITHUB_OUTPUT"
+          git diff --cached --stat
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install media tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+      - name: Lint
+        run: pnpm lint
+      - name: Full regression suite (no live inference)
+        run: pnpm exec vitest run --reporter=default --reporter=json --outputFile=/tmp/balanced-defaults-tests.json
+      - name: Production build
+        run: set -o pipefail; pnpm build 2>&1 | tee /tmp/balanced-defaults-build.log
+      - name: Check the tested source tree did not change
+        env:
+          EXPECTED_TREE: ${{ steps.candidate.outputs.tree }}
+        run: |
+          git diff --exit-code
+          test "$(git write-tree)" = "$EXPECTED_TREE"
+      - name: Preserve verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: balanced-defaults-verification
+          path: |
+            /tmp/balanced-defaults-tests.json
+            /tmp/balanced-defaults-build.log
+          retention-days: 14
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Publish only the tested tree, without overwriting concurrent work
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+          VERIFIED_TREE: ${{ needs.verify.outputs.tree }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(git ls-remote origin refs/heads/feat/fal-migration | cut -f1)
+          test "$CURRENT" = "$EXPECTED_HEAD" || { echo 'Branch advanced; reconcile before publishing'; exit 1; }
+          python3 .github/apply-balanced-defaults.py
+          git add -A
+          test "$(git write-tree)" = "$VERIFIED_TREE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(llm): balance script and vision quality with Gemini 3.8 Flash defaults' -m "Honor the added cost requirement while retaining premium opt-in compatibility, independent vision presets and model discovery. Bounded task-specific reasoning and v8 settings migration; no credential or media-model changes. Verified exact tree $VERIFIED_TREE with typecheck, lint, full tests and production build. No live inference executed."
+          git push origin HEAD:refs/heads/feat/fal-migration
+          echo "Published commit: $(git rev-parse HEAD)"
