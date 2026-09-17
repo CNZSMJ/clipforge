@@ -57,7 +57,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const styleLabel = script.styleType ? styleNameMap[script.styleType] : undefined;
     const [project] = await db.select().from(projects).where(eq(projects.id, id));
     const prompt = buildJudgePrompt(shots, { styleLabel, styleType: script.styleType ?? undefined,
-      videoMode: project?.videoMode, contentType: project?.contentType,
+      videoMode: project?.videoMode, contentType: project?.contentType, narrationStyle: script.narrationStyle ?? undefined,
       creativeIntent: project?.creativeIntent, visualBible: project?.visualBible });
 
     const client = createLLMClient({

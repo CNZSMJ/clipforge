@@ -1,3 +1,4 @@
+import { assertSelectedFramesApproved, FrameError } from "@/lib/keyframe-store";
 import { NextRequest, NextResponse } from "next/server";
 import { getDataDir, fileNameOf } from "@/lib/paths";
 import { ffprobeBin, ffmpegBin } from "@/lib/ffmpeg-path";
@@ -149,6 +150,7 @@ export async function POST(
     if (!selected || !Array.isArray(selected.shots) || selected.shots.length === 0) {
       return NextResponse.json({ error: "尚未生成脚本，无法合成" }, { status: 400 });
     }
+    await assertSelectedFramesApproved(id);
     let shots = selected.shots as Shot[];
     // Variant-matrix voiceover overrides for hook A/B: applied in memory
     // for this render only — the stored script stays untouched, so each variant compose can
@@ -604,6 +606,7 @@ export async function POST(
     // 立即返回，前端轮询 GET /api/project/[id]/compose 直到 status=done/failed
     return NextResponse.json({ compositionId: comp.id, status: "composing" }, { status: 202 });
   } catch (error) {
+    if (error instanceof FrameError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("视频合成失败:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "视频合成失败" },

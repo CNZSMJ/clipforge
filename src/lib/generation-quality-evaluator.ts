@@ -18,13 +18,16 @@ export async function evaluateGenerationQuality(input: {
   locale: "zh" | "en";
   config: LLMConfig;
   sampleContext?: string;
+  maxRetries?: number;
 }): Promise<GenerationQualityReport> {
+  if ((input.referenceImageUrls?.length ?? 0) > 8) throw new Error("At most 8 review references are supported; none may be silently dropped");
   const model = input.config.visionModel || input.config.model;
-  const client = createLLMClient({ ...input.config, model });
+  const baseClient = createLLMClient({ ...input.config, model });
+  const client = input.maxRetries === undefined ? baseClient : baseClient.withOptions({ maxRetries: input.maxRetries });
   const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
     { type: "text", text: buildQualityEvaluationPrompt(input.contract, input.locale, input.sampleContext) },
     { type: "image_url", image_url: { url: input.outputImageDataUrl, detail: "high" } },
-    ...(input.referenceImageUrls ?? []).slice(0, 4).map((url): OpenAI.Chat.Completions.ChatCompletionContentPart => ({
+    ...(input.referenceImageUrls ?? []).map((url): OpenAI.Chat.Completions.ChatCompletionContentPart => ({
       type: "image_url",
       image_url: { url, detail: "high" },
     })),

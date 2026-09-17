@@ -34,7 +34,7 @@ jobs:
           cache: pnpm
 
       - name: 安装系统 ffmpeg（供 drawtext 真渲染测试回退使用）
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk
 
       - name: 安装依赖（锁定版本，开箱即用）
         run: pnpm install --frozen-lockfile
@@ -47,8 +47,42 @@ jobs:
 
       - name: 单元测试
         if: success() || failure()
-        run: pnpm test
+        run: pnpm exec vitest run --reporter=default --reporter=json --outputFile=/tmp/clipforge-tests.json
 
       - name: 生产构建
         if: success() || failure()
         run: pnpm build
+
+      - name: Install browser-test client
+        if: success()
+        run: python3 -m pip install --disable-pip-version-check playwright==1.57.0
+
+      - name: Keyframe browser workflow (no paid inference)
+        if: success()
+        env:
+          KEYFRAME_BROWSER_TEST: "1"
+          APP_DATA_DIR: ${{ runner.temp }}/keyframe-browser-data
+          KEYFRAME_BROWSER_ARTIFACTS: ${{ runner.temp }}/keyframe-browser-evidence
+        run: |
+          node scripts/seed-keyframe-browser.cjs
+          pnpm exec next start -p 3107 > "$RUNNER_TEMP/keyframe-browser-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://localhost:3107/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          set -o pipefail
+          python3 scripts/check-keyframe-browser.py 2>&1 | tee "$RUNNER_TEMP/keyframe-browser-client.log"
+
+      - name: Retain browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyframe-browser-evidence
+          path: |
+            ${{ runner.temp }}/keyframe-browser-evidence
+            ${{ runner.temp }}/keyframe-browser-server.log
+            ${{ runner.temp }}/keyframe-browser-client.log
+            /tmp/clipforge-tests.json
+          retention-days: 7

@@ -4,7 +4,7 @@ import { updateAiTaskByProviderTaskId } from "@/lib/ai-tasks";
 import { ProviderError } from "@/lib/providers/base";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { scripts, projects } from "@/lib/db/schema";
+import { scripts, projects, keyframeWorkspaces } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { createProvider } from "@/lib/providers";
 import { toProviderImage } from "@/lib/remote-image";
@@ -50,6 +50,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const db = getDb();
+    if (db.select().from(keyframeWorkspaces).where(eq(keyframeWorkspaces.projectId, id)).get()) {
+      return apiError(req, "该项目已启用逐镜画面审核，请在画面工作台生成；九宫格会丢失逐镜参考与审核状态", "Use the keyframe workspace: a grid would bypass per-shot references and approvals", 409);
+    }
     const [script] = await db
       .select()
       .from(scripts)

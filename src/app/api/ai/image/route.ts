@@ -1,3 +1,4 @@
+import { hasFrameWorkspace } from "@/lib/keyframe-store";
 import { NextRequest, NextResponse } from "next/server";
 import { createProvider } from "@/lib/providers";
 import { ProviderError } from "@/lib/providers/base";
@@ -21,6 +22,7 @@ export async function POST(req: NextRequest) {
     return apiError(req, "缺少有效的平台、模型、提示词或 API Key", "Valid provider, model, prompt and API key are required");
   }
   try {
+    if (hasFrameWorkspace(projectId)) return apiError(req, "此项目已启用画面审核，请通过画面工作台预览与生成", "This project uses keyframe review; preview and generate through its workspace", 409);
     const provider = createProvider({ name: providerName, apiKey, baseUrl });
     const opts = generationOptions(options);
     const [referenceImageUrl, referenceImageUrls] = await Promise.all([

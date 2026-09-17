@@ -1,3 +1,4 @@
+import { assertFrameApproved, approvedFrameMotionDirection, frameView, hasFrameWorkspace, FrameError } from "@/lib/keyframe-store";
 import type { VideoOptions } from "@/lib/providers/types";
 import { generationOptions, stageReferences } from "@/lib/generation-input";
 import { buildFalVideoRequest } from "@/lib/providers/fal-ai";
@@ -38,6 +39,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    await assertFrameApproved(projectId, shotId, imageUrl, undefined, mode === "video-to-video" && Array.isArray(referenceImageUrls) ? referenceImageUrls : undefined);
+    const reviewedSource = hasFrameWorkspace(projectId) ? frameView(projectId).sourceKey : undefined;
+    const approvedDirection = approvedFrameMotionDirection(projectId, shotId);
+    const actualPrompt = [prompt || "", approvedDirection].filter(Boolean).join("\n\n");
     const provider = createProvider({ name: providerName, apiKey, baseUrl });
 
     const opts = generationOptions(options);
@@ -51,7 +56,7 @@ export async function POST(req: NextRequest) {
       ...opts,
       modelId: model,
       mode: mode || (imageUrl ? "image-to-video" : "text-to-video"),
-      prompt: prompt || "",
+      prompt: actualPrompt,
       firstFrameUrl, lastFrameUrl,
       referenceImageUrls: refImages,
       referenceVideoUrls: refVideos,
@@ -59,6 +64,8 @@ export async function POST(req: NextRequest) {
       // The legacy single reference also has to pass staging, not escape through options.
       referenceVideoUrl: opts.referenceVideoUrl == null ? undefined : await toProviderImage(String(opts.referenceVideoUrl), provider),
     };
+    await assertFrameApproved(projectId, shotId, imageUrl, undefined, mode === "video-to-video" && Array.isArray(referenceImageUrls) ? referenceImageUrls : undefined);
+    if (reviewedSource && reviewedSource !== frameView(projectId).sourceKey) throw new FrameError("画面设定在上传中已改变，请重新确认 / Frame direction changed during upload; review again", 409);
     const resolved = providerName === "fal-ai" ? buildFalVideoRequest(videoOptions) : undefined;
     const resolvedSpec = resolved ? getFalVideoSpec(resolved.modelId) : undefined;
     const actualDuration = resolvedSpec ? effectiveFalDuration(resolvedSpec, videoOptions.duration, videoOptions.fps) : videoOptions.duration;
@@ -66,7 +73,7 @@ export async function POST(req: NextRequest) {
     // legacy single-phase path for providers without two-phase task support
     if (!provider.submitVideoTask || !provider.waitForTask) {
       const result = await provider.generateVideo(videoOptions);
-      return NextResponse.json(result);
+      return NextResponse.json({ ...result, prompt: actualPrompt });
     }
 
     // Phase 1: submit. Mode/model capability is validated inside the provider BEFORE any
@@ -103,6 +110,7 @@ export async function POST(req: NextRequest) {
       await updateAiTask(rowId, { status: "download_pending", resultUrls: videoUrls, error: null });
       return NextResponse.json({
         taskId,
+        prompt: actualPrompt,
         videoUrls,
         modelId,
         duration: actualDuration,
@@ -124,6 +132,7 @@ export async function POST(req: NextRequest) {
                 `${message}. Task ID ${taskId} has been saved and can be recovered from the assets page — do not resubmit`
               ),
           taskId,
+        prompt: actualPrompt,
           modelId,
           recoverable: !failed,
         },
@@ -131,6 +140,7 @@ export async function POST(req: NextRequest) {
       );
     }
   } catch (error) {
+    if (error instanceof FrameError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("生视频失败:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : errText(req, "生视频失败", "Video generation failed") },

@@ -43,6 +43,11 @@ export async function POST(req: NextRequest) {
 
     try {
       const row = await findAiTask(providerName, taskId);
+      if (row?.mode?.startsWith("keyframe:") && row.projectId) {
+        const { resumeFrame } = await import("@/lib/keyframe-service");
+        const saved = await resumeFrame(row.projectId, row.mode.slice("keyframe:".length), apiKey);
+        return NextResponse.json({ taskId, status: "completed", persisted: true, imageUrls: [saved.asset?.filePath], keyframeReviewRequired: true }, { headers: { "Cache-Control": "no-store" } });
+      }
       if (row?.status === "completed" && row.resultUrls?.length) {
         const urls = row.resultUrls;
         const localPaths = urls.map(url => {

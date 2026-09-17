@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
         generated.map((s, i) => ({
           projectId,
           version: 1,
+          narrationStyle,
           styleType: "custom" as const, // topic videos always use custom style type
           title: s.title,
           totalDuration: s.totalDuration,

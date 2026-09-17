@@ -1,3 +1,4 @@
+import { assertFrameApproved, approvedFrameMotionDirection, FrameError } from "@/lib/keyframe-store";
 import { nearestFalAspectRatio } from "@/lib/providers/fal-video-params";
 import { persistGeneratedFilm } from "@/lib/storyboard-film-persistence";
 import { NextRequest, NextResponse } from "next/server";
@@ -106,7 +107,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const fit = filmDurationFit(shots, choice.model);
 
     if (dryRun) {
-      const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { context: renderContext, seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) });
+      const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { context: renderContext, seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) }) + "\n" + approvedFrameMotionDirection(id);
       const previewOpts = (options ?? {}) as { width?: number; height?: number };
       const estimate = estimateFilmSpend(await unitPriceUsd(), fit.seconds, previewOpts);
       // planned reference count: one keyframe per shot (+ the identity sheet when present) —
@@ -203,12 +204,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
+    await assertFrameApproved(id, undefined, undefined, { scriptId, urls: keyframes });
     const provider = createProvider({ name: providerName, apiKey, baseUrl: baseUrl ?? "" });
     const referenceImageUrls = (await Promise.all(refInputs.map((u) => toProviderImage(u, provider)))).filter(
       (u): u is string => !!u
     );
 
-    const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { context: renderContext, seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) });
+    await assertFrameApproved(id, undefined, undefined, { scriptId, urls: keyframes });
+    const prompt = buildStoryboardFilmPrompt(shots, script.characters, { characterSheet: !!characterSheetUrl }, { context: renderContext, seconds: fit.seconds, aspectRatio: nearestFalAspectRatio(Number(options?.width) || 720, Number(options?.height) || 1280) }) + "\n" + approvedFrameMotionDirection(id);
     const duration = fit.seconds;
     // lip-sync guardrail (advisory, never blocks): overstuffed lines drift out of sync near the
     // end of a segment — surfaced so the UI/CLI can suggest trimming before the paid generation
@@ -265,6 +268,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       await updateAiTask(rowId, { status: "completed", resultUrls: [saved.url], error: null });
       return NextResponse.json({ ...saved, taskId, modelId, seconds: duration, dialogueWarnings });
     } catch (error) {
+    if (error instanceof FrameError) return NextResponse.json({ error: error.message }, { status: error.status });
       const failed = error instanceof ProviderError && error.code === "TASK_FAILED";
       const message = error instanceof Error ? error.message : String(error);
       await updateAiTask(rowId, { status: failed ? "failed" : "unknown", error: message });

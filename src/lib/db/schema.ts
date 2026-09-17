@@ -1,3 +1,5 @@
+import type { FrameWorkspace } from "@/lib/keyframe-direction";
+import type { FrameRenderRequest } from "@/lib/keyframe-types";
 import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type {
   CreativeIntent,
@@ -62,6 +64,7 @@ export const scripts = sqliteTable("scripts", {
   styleType: text("style_type", {
     enum: ["pain_point", "scene", "comparison", "story", "drama", "reversal", "interview", "unboxing", "product_pov", "talking_head", "custom"],
   }).notNull(),
+  narrationStyle: text("narration_style", { enum: ["knowledge", "story", "lifestyle", "inspiration", "travel"] }),
   title: text("title"),
   totalDuration: integer("total_duration"), // Total duration in seconds
   shots: text("shots", { mode: "json" }).$type<Shot[]>().default([]),
@@ -456,3 +459,23 @@ export interface SubtitleStyle {
   strokeWidth: number;
   position: "bottom" | "center" | "top";
 }
+
+// Keyframe direction and paid submission intents are separate from the active composition takes.
+export const keyframeWorkspaces = sqliteTable("keyframe_workspaces", {
+  projectId: text("project_id").primaryKey().references(() => projects.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull().default(0),
+  document: text("document", { mode: "json" }).$type<FrameWorkspace>().notNull(),
+});
+export const keyframeRenders = sqliteTable("keyframe_renders", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  scriptId: text("script_id").notNull(),
+  shotId: integer("shot_id").notNull(),
+  sourceKey: text("source_key").notNull(),
+  request: text("request", { mode: "json" }).$type<FrameRenderRequest>().notNull(),
+  provider: text("provider").notNull(), model: text("model").notNull(),
+  status: text("status", { enum: ["submitting", "processing", "download_pending", "ready", "failed", "unknown"] }).notNull(),
+  taskId: text("task_id"), resultUrl: text("result_url"), assetId: text("asset_id"), error: text("error"),
+  review: text("review", { mode: "json" }).$type<GenerationQualityReport & { sourceKey?: string }>(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});

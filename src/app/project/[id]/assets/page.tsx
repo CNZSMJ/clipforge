@@ -1,11 +1,12 @@
 "use client";
 
+import { KeyframeStudio } from "@/components/keyframes/keyframe-studio";
 import { useModelCatalog } from "@/lib/hooks/use-model-catalog";
 import { ModelCatalogStatus } from "@/components/model-catalog-status";
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { LuZap, LuCheck, LuCircleX, LuImage, LuArrowRight, LuLoaderCircle, LuTriangleAlert, LuUpload, LuScissors } from "react-icons/lu";
+import { LuCheck, LuCircleX, LuImage, LuArrowRight, LuLoaderCircle, LuTriangleAlert, LuUpload, LuScissors } from "react-icons/lu";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,7 @@ import { buildAssetRows, shouldOfferStockFill, needsImageModelWarning, nextChain
 import { realMixFromRows, shotReality } from "@/lib/real-mix";
 import { getVideoModelCapabilities } from "@/lib/model-capabilities";
 import { buildMotionPrompt } from "@/lib/motion-prompt";
-import { keyframeInstantLine, keyframeStaticWarnings } from "@/lib/prompt-lint";
+import { keyframeStaticWarnings } from "@/lib/prompt-lint";
 import { applyRetakePatch, RETAKE_SYMPTOMS, type RetakeSymptom } from "@/lib/retake-patch";
 import {
   CAMERA_PRESETS,
@@ -32,8 +33,8 @@ import {
   mixCameraPrompt,
   type CameraPresetCategory,
 } from "@/lib/camera-presets";
-import { LOOK_PRESETS, getLookPreset, lookImageSuffix } from "@/lib/look-presets";
-import { renderModeDirection, shotSpeakerVisible, shotScopedIntent } from "@/lib/storyboard-render-direction";
+import { LOOK_PRESETS, getLookPreset } from "@/lib/look-presets";
+import { shotSpeakerVisible, shotScopedIntent } from "@/lib/storyboard-render-direction";
 import { modelSupportsLastFrame } from "@/lib/video-composer/transitions";
 import {
   buildVideoControlPlan,
@@ -101,11 +102,12 @@ export default function AssetsPage() {
   const uiMode = useSettingsStore((st) => st.uiMode);
 
   const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [frameReviewState, setFrameReviewState] = useState({ enabled: false, complete: false });
   const [productImages, setProductImages] = useState<string[]>([]);
   // product fidelity: when AI generates shots featuring the product, use the original product photo as a reference for redrawing to prevent AI from altering the product (critical for commerce)
   const [productSafe, setProductSafe] = useState(true);
-  // after image generation, automatically run image-to-video to produce real motion shots (i2v quality path, replacing fake Ken-Burns camera moves). Only active when a video model is configured.
-  const [autoMotion, setAutoMotion] = useState(true);
+  // Reviewed keyframes are animated only after an explicit user action.
+
   const [projectName, setProjectName] = useState("");
   // project type: topic (one-sentence-to-video without a product) uses the free stock library for automatic visuals
   const [contentType, setContentType] = useState<string>("");
@@ -122,7 +124,7 @@ export default function AssetsPage() {
   const [motionShots, setMotionShots] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [isBatchGenerating, setIsBatchGenerating] = useState(false);
+  const isBatchGenerating = false; // KeyframeStudio owns sequential, explicitly confirmed image batches.
   // state for "auto-fill visuals (free stock)" feature
   const [isFillingStock, setIsFillingStock] = useState(false);
   const [stockMsg, setStockMsg] = useState<string | null>(null);
@@ -206,10 +208,7 @@ export default function AssetsPage() {
           setProjectVideoMode(typeof project.videoMode === "string" ? project.videoMode : "");
           setProjectCreativeIntent(sanitizeCreativeIntent(project.creativeIntent));
           setProjectVisualBible(sanitizeVisualBible(project.visualBible));
-          if (Array.isArray(project.productionWorkflow)) {
-            const motionStage = project.productionWorkflow.find((stage: { id?: unknown }) => stage.id === "motion");
-            if (motionStage) setAutoMotion(motionStage.enabled !== false);
-          }
+
         }
 
         // use the selected script (fall back to the first one if none is marked selected)
@@ -716,7 +715,7 @@ export default function AssetsPage() {
         if (!url) throw new Error(t("errorEmptyResult"));
         // save as this shot's asset (video will be downloaded locally); compose processes it as a video clip (including native audio track detection).
         // Persist the motion prompt actually sent AND the source keyframe (provenance + re-run/chaining)
-        await saveVideoAsset(shotId, url, finalPrompt, videoModelTarget.provider, data.modelId || videoModelTarget.model, effectiveFirstFrame, controlSummary);
+        await saveVideoAsset(shotId, url, data.prompt || finalPrompt, videoModelTarget.provider, data.modelId || videoModelTarget.model, effectiveFirstFrame, controlSummary);
       } catch (e) {
         setAssets((prev) =>
           prev.map((a) => (a.shotId === shotId ? { ...a, error: e instanceof Error ? e.message : t("errorImageToVideoFailed") } : a))
@@ -732,131 +731,11 @@ export default function AssetsPage() {
     [assets, videoModelTarget, id, videoParams, motionIntensity, motionRealism, chainMode, contentType, projectVideoMode, scriptStyleType, projectCategory, projectCreativeIntent, projectVisualBible, visualLook, productSafe, productImages, presenterLib, presenterSheet, saveVideoAsset, reloadPendingTasks, t, locale]
   );
 
-  // actually generate a single asset. Returns the saved static keyframe URL (undefined on failure) so
-  // the batch flow can run a second keyframe-chained motion pass without re-reading stale React state.
-  const generateOne = useCallback(
-    async (shotId: number, opts?: { skipMotion?: boolean }): Promise<string | undefined> => {
-      const asset = assets.find((a) => a.shotId === shotId);
-      if (!asset) return undefined;
-
-      // product image shot: use the product photo directly, no AI call needed (persisted for the composer to read)
-      if (asset.visualSource === "product_image") {
-        setAssets((prev) =>
-          prev.map((a) =>
-            a.shotId === shotId ? { ...a, status: "done", thumbnailUrl: productImages[0] } : a
-          )
-        );
-        if (productImages[0]) {
-          fetch(`/api/project/${id}/assets`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ shotId, type: "product_image", sourceUrl: productImages[0] }),
-          }).catch(() => {});
-          // auto motion: use the product image as the first frame and run image-to-video (bring the real product to life); falls back to a static image on failure
-          if (!opts?.skipMotion && autoMotion && videoModelTarget) await generateMotion(shotId, productImages[0]);
-        }
-        return productImages[0];
-      }
-
-      // AI-generated shot: requires a default image model to be configured
-      if (!modelTarget) {
-        setAssets((prev) =>
-          prev.map((a) =>
-            a.shotId === shotId
-              ? { ...a, status: "failed", error: t("errorNoImageModel") }
-              : a
-          )
-        );
-        return undefined;
-      }
-
-      setAssets((prev) => prev.map((a) => (a.shotId === shotId ? { ...a, status: "generating", error: undefined } : a)));
-
-      // product fidelity: AI shot featuring product + product image available + toggle on → redraw with product image (image-to-image, locks in the product subject)
-      const useProductSafe =
-        productSafe && !!productImages[0] && PRODUCT_SHOT_TYPES.has(asset.type);
-      const genModel = useProductSafe ? toEditVariant(modelTarget.model) : modelTarget.model;
-      const genMode = useProductSafe ? "image-to-image" : "text-to-image";
-      const basePrompt = asset.prompt || asset.description;
-      // A characterId assigns a voice, not an on-camera human. Respect the chosen medium
-      // and people boundary for every keyframe, including product-voice and silent shots.
-      const language = /[一-鿿぀-ヿ가-힯]/.test(basePrompt) ? "zh" : "en";
-      const castSuffix = `。${renderModeDirection({ contentType, videoMode: projectVideoMode, styleType: scriptStyleType }, language)}`;
-      // global look: one lighting/palette block across every keyframe keeps shots in one video
-      // from drifting between styles (the LLM improvises style words per shot otherwise)
-      const lookText = lookImageSuffix(visualLook, basePrompt);
-      const lookSuffix = lookText ? `。${lookText}` : "";
-      // frame-position directive: a keyframe is the frozen instant JUST BEFORE the action,
-      // holding visible potential energy — gives the i2v pass a beat to play out instead of
-      // animating an already-completed pose
-      const frameSuffix = `。${keyframeInstantLine(basePrompt)}`;
-      const shotPrompt = useProductSafe
-        ? `${basePrompt}。严格保持商品的外观、包装、颜色、logo 和文字完全不变，只重绘符合描述的场景、背景与光线。${castSuffix}${lookSuffix}${frameSuffix}`
-        : `${basePrompt}${castSuffix}${lookSuffix}${frameSuffix}`;
-      const projectDirection = compileCreativePrompt({
-        ...shotScopedIntent(projectCreativeIntent, asset),
-        continuity: [...(projectCreativeIntent.continuity ?? []), ...projectVisualBible.characterAnchors, ...projectVisualBible.wardrobeAnchors, ...projectVisualBible.environmentAnchors, ...projectVisualBible.lightingAnchors],
-        productConstraints: [...(projectCreativeIntent.productConstraints ?? []), ...projectVisualBible.productAnchors],
-      });
-      const genPrompt = projectDirection.prompt ? `${shotPrompt}. Project direction: ${projectDirection.prompt}` : shotPrompt;
-      const consistencyFailure = checkPromptConsistency(genPrompt, projectVisualBible).find((issue) => issue.severity === "fail");
-      if (consistencyFailure) {
-        setAssets((prev) => prev.map((item) => item.shotId === shotId ? { ...item, status: "failed", error: t("visualBibleBlocked", { anchor: consistencyFailure.anchor }) } : item));
-        return undefined;
-      }
-
-      try {
-        const res = await fetch("/api/ai/image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            projectId: id, shotId,
-            provider: modelTarget.provider,
-            model: genModel,
-            apiKey: modelTarget.apiKey,
-            baseUrl: modelTarget.baseUrl,
-            mode: genMode,
-            prompt: genPrompt,
-            ...(useProductSafe && { imageUrl: productImages[0] }),
-            // user-defined image parameters (aspect ratio → dimensions / count / steps / guidance / seed / negative prompt)
-            options: (() => {
-              const options = buildImageOptions(imageParams);
-              if (projectDirection.negativePrompt) options.negativePrompt = [options.negativePrompt, projectDirection.negativePrompt].filter(Boolean).join(", ");
-              return options;
-            })(),
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || t("errorGenerateFailed"));
-        const url = data.imageUrls?.[0];
-        if (!url) throw new Error(t("errorEmptyResult"));
-        // persist to database (remote images will be downloaded locally) so the composer can read the real AI asset
-        const saveRes = await fetch(`/api/project/${id}/assets`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ shotId, type: "ai_generate", sourceUrl: url,
-            prompt: genPrompt, provider: modelTarget.provider, model: data.modelId || genModel }),
-        });
-        const saved = await saveRes.json();
-        if (!saveRes.ok || !saved.filePath) throw new Error(saved.error || t("taskResumeFailed"));
-        const savedUrl = saved.filePath;
-        setAssets((prev) =>
-          prev.map((a) => (a.shotId === shotId ? { ...a, status: "done", thumbnailUrl: savedUrl } : a))
-        );
-        // auto motion: use the freshly generated image as the first frame and run image-to-video (real camera moves replace fake Ken-Burns); falls back to static image on failure
-        if (!opts?.skipMotion && autoMotion && videoModelTarget) await generateMotion(shotId, savedUrl);
-        return savedUrl;
-      } catch (e) {
-        await reloadPendingTasks();
-        setAssets((prev) =>
-          prev.map((a) =>
-            a.shotId === shotId ? { ...a, status: "failed", error: e instanceof Error ? e.message : t("errorGenerateFailed") } : a
-          )
-        );
-        return undefined;
-      }
-    },
-    [assets, modelTarget, productImages, productSafe, imageParams, autoMotion, videoModelTarget, contentType, projectVideoMode, scriptStyleType, projectCreativeIntent, projectVisualBible, visualLook, generateMotion, reloadPendingTasks, id, t]
-  );
+  // Legacy shot buttons navigate to the same inspectable review workflow, never bypass it.
+  const generateOne = useCallback(async (shotId: number): Promise<string | undefined> => {
+    window.dispatchEvent(new CustomEvent("clipforge:keyframe-select", { detail: { shotId } }));
+    return undefined;
+  }, []);
 
   // storyboard grid: ONE image generation renders every shot as a 3x3 grid cell (person /
   // identity with within-scene layout/light continuity), the server crops cells into per-shot
@@ -911,7 +790,8 @@ export default function AssetsPage() {
       const res = await fetch(`/api/project/${id}/storyboard-film`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scriptId, dryRun: true, model: videoModelTarget.model, baseUrl: videoModelTarget.baseUrl }),
+        body: JSON.stringify({ scriptId, dryRun: true, model: videoModelTarget.model, baseUrl: videoModelTarget.baseUrl,
+          options: buildVideoOptions(videoParams), ...(presenterSheet && { characterSheetUrl: presenterSheet }) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || t("filmFailed"));
@@ -921,7 +801,7 @@ export default function AssetsPage() {
     } finally {
       setIsFilmGenerating(false);
     }
-  }, [id, scriptId, videoModelTarget, isFilmGenerating, t]);
+  }, [id, scriptId, videoModelTarget, videoParams, presenterSheet, isFilmGenerating, t]);
 
   const runStoryboardFilm = useCallback(async () => {
     if (!videoModelTarget || !scriptId || isFilmGenerating) return;
@@ -942,7 +822,7 @@ export default function AssetsPage() {
           baseUrl: videoModelTarget.baseUrl,
           // presenter sheet leads reference_images as the identity anchor (@Image1)
           ...(presenterSheet && { characterSheetUrl: presenterSheet }),
-          options: buildVideoOptions(videoParams ? { ...videoParams, aspectRatio: "9:16" } : undefined),
+          options: buildVideoOptions(videoParams),
         }),
       });
       const data = await res.json();
@@ -956,42 +836,9 @@ export default function AssetsPage() {
     }
   }, [id, scriptId, videoModelTarget, videoParams, isFilmGenerating, presenterSheet, spendCapUsd, t]);
 
-  // generate all in one click (sequential, to avoid hitting platform rate limits with concurrent requests).
-  // With auto-motion on, this runs TWO passes: (1) every static keyframe, (2) keyframe-chained i2v per shot —
-  // chaining needs the NEXT shot's keyframe to exist, which a single interleaved pass can't provide.
-  const generateAll = useCallback(async () => {
-    const pending = assets.filter((a) => a.status === "pending" || a.status === "failed");
-    if (pending.length === 0) return;
-    setIsBatchGenerating(true);
-    const chained = autoMotion && !!videoModelTarget;
-    // freshly saved keyframes by shot — React state in this closure is stale during the loop
-    const savedByShot = new Map<number, string>();
-    for (const asset of pending) {
-      const url = await generateOne(asset.shotId, { skipMotion: chained });
-      if (url) savedByShot.set(asset.shotId, url);
-    }
-    if (chained) {
-      // pass 2: i2v in script order; each shot chains into the next shot's keyframe when available.
-      // Existing static keyframes (generated in earlier sessions) participate too.
-      const staticFrameOf = (a: AssetItem): string | undefined =>
-        savedByShot.get(a.shotId) ?? (a.status === "done" && !a.isVideo ? a.thumbnailUrl : undefined);
-      for (let i = 0; i < assets.length; i++) {
-        const row = assets[i];
-        if (row.isVideo) continue; // already a motion/stock video — don't re-bill
-        // tail mode: sequential continuation — the previous shot's real tail frame (captured at
-        // save time in this very loop) beats the shot's own keyframe as the first frame
-        const tailFrame = chainMode === "tail" && i > 0 ? assets[i - 1].lastFrameUrl ?? lastFrameByShot.current.get(assets[i - 1].shotId) : undefined;
-        const firstFrame = tailFrame ?? staticFrameOf(row);
-        if (!firstFrame) continue;
-        const next = assets[i + 1];
-        // pin mode pins the next keyframe as the last frame; tail/off modes never pin
-        const lastFrame = chainMode === "pin" && next && chainByDefault(row.type) ? staticFrameOf(next) : undefined;
-        // null = explicitly no chain (last shot / next frame unavailable)
-        await generateMotion(row.shotId, firstFrame, lastFrame ?? null);
-      }
-    }
-    setIsBatchGenerating(false);
-  }, [assets, generateOne, generateMotion, autoMotion, videoModelTarget, chainMode]);
+  const generateAll = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("clipforge:keyframe-select", { detail: { shotId: assets.find(a => a.status !== "done")?.shotId ?? assets[0]?.shotId } }));
+  }, [assets]);
 
   return (
     <div className="min-h-screen grid-bg">
@@ -1048,11 +895,11 @@ export default function AssetsPage() {
                 reason in the tooltip) — hiding them made the features undiscoverable. */}
             {(() => {
               const shotsOk = assets.length >= 2 && assets.length <= 9;
-              const gridReady = Boolean(modelTarget) && shotsOk;
-              const gridReason = !modelTarget ? t("gridNeedModel") : !shotsOk ? t("gridNeedShots") : t("gridTip");
+              const gridReady = Boolean(modelTarget) && shotsOk && !frameReviewState.enabled;
+              const gridReason = frameReviewState.enabled ? (locale === "zh" ? "已启用逐镜审核，请用工作台沿用样片生成；不以九宫格覆盖已确认图" : "Review workflow active: expand scene samples in the workspace instead of replacing them with a grid") : !modelTarget ? t("gridNeedModel") : !shotsOk ? t("gridNeedShots") : t("gridTip");
               const allShotsDone = shotsOk && assets.every((a) => a.status === "done");
-              const filmReady = Boolean(videoModelTarget) && allShotsDone;
-              const filmReason = !videoModelTarget ? t("filmNeedModel") : !allShotsDone ? t("filmNeedReady") : t("filmTip");
+              const filmReady = Boolean(videoModelTarget) && allShotsDone && (!frameReviewState.enabled || frameReviewState.complete);
+              const filmReason = frameReviewState.enabled && !frameReviewState.complete ? (locale === "zh" ? "请先在画面工作台逐镜确认" : "Approve each frame in the workspace first") : !videoModelTarget ? t("filmNeedModel") : !allShotsDone ? t("filmNeedReady") : t("filmTip");
               return (
                 <>
                   {uiMode === "pro" && (
@@ -1094,25 +941,18 @@ export default function AssetsPage() {
             })()}
             <Button
               onClick={generateAll}
-              disabled={isBatchGenerating || allDone || assets.length === 0}
+              disabled={assets.length === 0}
               className="brand-gradient text-white text-xs"
             >
-              {isBatchGenerating ? (
-                <>
-                  <LuLoaderCircle className="animate-spin mr-1.5 h-3.5 w-3.5" />
-                  {t("generatingAll")}
-                </>
-              ) : allDone ? (
-                t("allDone")
-              ) : (
-                <>
-                  <LuZap className="w-3.5 h-3.5 mr-1" />
-                  {t("generateAll")}
-                </>
-              )}
+              {locale === "zh" ? "画面工作台" : "Keyframe workspace"}
             </Button>
           </div>
         </div>
+
+        {!loading && !loadError && assets.length > 0 && (
+          <KeyframeStudio key={`${id}:${scriptId}`} projectId={id} target={modelTarget} options={buildImageOptions(imageParams)} llm={llm}
+            onReviewState={setFrameReviewState} onChanged={reloadAssets} onAnimate={(shotId, url) => generateMotion(shotId, url, null)} />
+        )}
 
         {/* Director panel: global creative settings applied to every generation pass.
             One labeled container instead of loose pills scattered through the action bar.
@@ -1242,21 +1082,7 @@ export default function AssetsPage() {
               ))}
             </div>
           )}
-          {videoModelTarget && (
-            <button
-              type="button"
-              onClick={() => setAutoMotion((v) => !v)}
-              title={t("autoMotionTip")}
-              className={`flex items-center gap-1.5 rounded-full border px-3 h-8 text-xs font-medium transition-all ${
-                autoMotion
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border/60 bg-muted/20 text-muted-foreground"
-              }`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${autoMotion ? "bg-primary" : "bg-muted-foreground/40"}`} />
-              {t("autoMotion")}{autoMotion ? t("on") : t("off")}
-            </button>
-          )}
+          <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">{locale === "en" ? "Images require review before video" : "生图后先审核，不自动生成视频"}</span>
           {productImages.length > 0 && (
             <button
               type="button"
@@ -1639,13 +1465,7 @@ export default function AssetsPage() {
                               disabled={asset.status === "generating" || motionShots.has(asset.shotId)}
                               onClick={() => generateOne(asset.shotId)}
                             >
-                              {asset.status === "generating"
-                                ? t("btnGenerating")
-                                : asset.status === "done"
-                                ? t("btnRegenerate")
-                                : asset.status === "failed"
-                                ? tc("retry")
-                                : t("btnGenerate")}
+                              {locale === "zh" ? "检查 / 修正画面" : "Review / fix frame"}
                             </Button>
                           )}
                           {/* Upload the creator's own image or video for a non-product shot. */}
