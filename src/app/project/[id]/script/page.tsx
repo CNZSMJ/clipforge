@@ -21,6 +21,7 @@ import { resolveDefaultModelTarget, buildImageOptions, buildVideoOptions, toEdit
 import { useT, useLocale } from "@/lib/i18n";
 import { STAGE_LABEL_KEYS } from "@/lib/pipeline-stages";
 import { friendlyError } from "@/lib/friendly-error";
+import { runPaidStage } from "@/lib/paid-stage";
 import { ProjectHeader } from "@/components/project-header";
 
 // shot type labels (label changed to i18n key, resolved per locale at render time)
@@ -537,6 +538,7 @@ export default function ScriptPage() {
         // preview the CONFIGURED model: the route resolves it the same way the paid submit does,
         // so a forced switch shows up in the confirm card instead of only on the invoice (issue #28)
         model: useSettingsStore.getState().defaultVideoModel,
+        options: buildVideoOptions({ ...useSettingsStore.getState().videoParams, aspectRatio: "9:16" }),
         // a picked presenter WILL ride as a reference sheet (generated on demand later), so the
         // preview must count its slot now — the dryRun branch only reads truthiness
         ...(presenter && { characterSheetUrl: presenter.referenceImages?.[0] ?? "planned" }),
@@ -582,7 +584,7 @@ export default function ScriptPage() {
     try {
       setAiFilmStage(t("aiFilmVerifying"));
       const fresh = await fetchFilmPreview(currentScript.id);
-      if (fresh.prompt !== filmPreview.prompt) {
+      if (fresh.prompt !== filmPreview.prompt || fresh.model !== filmPreview.model || fresh.seconds !== filmPreview.seconds || fresh.referenceImages !== filmPreview.referenceImages) {
         // stale confirmation: show the new preview instead of submitting outdated content
         setFilmPreview(fresh);
         setAiFilming(false);
@@ -598,7 +600,7 @@ export default function ScriptPage() {
       ]);
       if (!imgTarget || !vidTarget) throw new Error(t("aiFilmNeedModels"));
       // identity/product anchors: presenter sheet (picked at creation) + first product photo
-      const presenter = presenterLib.find((c) => c.id === presenterParam);
+      const presenter = useCharacterStore.getState().characters.find((c) => c.id === presenterParam);
       let sheet = presenter?.referenceImages?.[0];
       // multi-view sheet on demand: a presenter picked at creation but never "sheeted" gets their
       // 2x2 four-view reference generated right here (one square generation, physically the same
@@ -642,43 +644,44 @@ export default function ScriptPage() {
       }
       if (presenterParam && !sheet) throw new Error("已选主播没有可用定妆图；请先在主播库生成或恢复定妆任务，再制作整片");
       const productRef = projectMeta?.productImages?.[0];
-      // 1) storyboard grid: ONE image generation renders every shot as a keyframe (identity locked)
+      // Checkpoint every paid stage. Retrying a film MUST NOT regenerate the grid, and a
+      // known pending handle must be finalized through the task endpoint, not submitted again.
+      const recoverStage = (target: typeof imgTarget, taskId: string) => fetch("/api/ai/video/task", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: target.provider, apiKey: target.apiKey, baseUrl: target.baseUrl, taskId, wait: true }),
+      });
+      const gridModel = sheet || productRef ? toEditVariant(imgTarget.model) : imgTarget.model;
+      const imageOptions = buildImageOptions({ ...s.imageParams, aspectRatio: "9:16", count: 1 });
+      const videoOptions = buildVideoOptions({ ...s.videoParams, aspectRatio: "9:16" });
+      // No credentials in these browser checkpoints. Changing the confirmed content invalidates
+      // completed work; pending/ambiguous old work is never silently discarded.
+      const gridSignature = JSON.stringify([currentScript.id, fresh.prompt, sheet, productRef,
+        imgTarget.provider, imgTarget.baseUrl, gridModel, imageOptions]);
       setAiFilmStage(t("aiFilmGrid"));
-      const gridRes = await fetch(`/api/project/${id}/storyboard-grid`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scriptId: currentScript.id,
-          provider: imgTarget.provider,
-          model: sheet || productRef ? toEditVariant(imgTarget.model) : imgTarget.model,
-          apiKey: imgTarget.apiKey,
-          baseUrl: imgTarget.baseUrl,
-          ...(sheet && { characterSheetUrl: sheet }),
-          ...(productRef && { productImageUrl: productRef }),
-          options: buildImageOptions(s.imageParams ? { ...s.imageParams, aspectRatio: "9:16", count: 1 } : undefined),
+      await runPaidStage({
+        storage: localStorage, key: `clipforge:film:${id}:grid`, signature: gridSignature,
+        submit: () => fetch(`/api/project/${id}/storyboard-grid`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scriptId: currentScript.id, provider: imgTarget.provider, model: gridModel,
+            apiKey: imgTarget.apiKey, baseUrl: imgTarget.baseUrl,
+            ...(sheet && { characterSheetUrl: sheet }), ...(productRef && { productImageUrl: productRef }), options: imageOptions }),
         }),
+        recover: (taskId) => recoverStage(imgTarget, taskId),
+        isComplete: (data) => typeof data.gridPath === "string" || (data.status === "completed" && Boolean(data.grid)),
       });
-      const gridData = await gridRes.json().catch(() => ({}));
-      if (!gridRes.ok) throw new Error(gridData.error || t("aiFilmFailed"));
-      // 2) film pass: all keyframes ride one reference-to-video call — native cuts + spoken lines
       setAiFilmStage(t("aiFilmRender"));
-      const filmRes = await fetch(`/api/project/${id}/storyboard-film`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scriptId: currentScript.id,
-          provider: vidTarget.provider,
-          // confirmed in the preview card — never re-derived here, so what was shown is what bills
-          model: filmPreview.model,
-          spendCapUsd: s.spendCapUsd,
-          // the user ticked "spend anyway" against a cap-busting estimate
-          acknowledgeOverCap: overCapAck,
-          apiKey: vidTarget.apiKey,
-          baseUrl: vidTarget.baseUrl,
-          ...(sheet && { characterSheetUrl: sheet }),
-          options: buildVideoOptions(s.videoParams ? { ...s.videoParams, aspectRatio: "9:16" } : undefined),
+      await runPaidStage({
+        storage: localStorage, key: `clipforge:film:${id}:render`,
+        signature: JSON.stringify([gridSignature, vidTarget.provider, vidTarget.baseUrl, filmPreview.model, videoOptions]),
+        submit: () => fetch(`/api/project/${id}/storyboard-film`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scriptId: currentScript.id, provider: vidTarget.provider, model: filmPreview.model,
+            spendCapUsd: s.spendCapUsd, acknowledgeOverCap: overCapAck, apiKey: vidTarget.apiKey,
+            baseUrl: vidTarget.baseUrl, ...(sheet && { characterSheetUrl: sheet }), options: videoOptions }),
         }),
+        recover: (taskId) => recoverStage(vidTarget, taskId),
+        isComplete: (data) => typeof data.compositionId === "string" && Boolean(data.compositionId),
       });
-      const filmData = await filmRes.json().catch(() => ({}));
-      if (!filmRes.ok) throw new Error(filmData.error || t("aiFilmFailed"));
       // 3) the film landed in compositions — the export page shows it
       setFilmPreview(null);
       router.push(`/project/${id}/export`);
