@@ -16,12 +16,9 @@ import {
   referenceQuotaCheck,
   resolveFilmModel,
   estimateFilmSpend,
-  parseUnitUsd,
   FILM_MAX_SECONDS,
 } from "@/lib/storyboard-film";
-import { fetchAtlasCatalog, getCachedAtlasEntry } from "@/lib/providers/atlas-catalog";
-import { ATLAS_BASE_URL } from "@/lib/atlas-onekey";
-import { toRemoteUsableImage } from "@/lib/remote-image";
+import { toProviderImage } from "@/lib/remote-image";
 import { probeMedia } from "@/lib/media-probe";
 import { recordAiTask, updateAiTask } from "@/lib/ai-tasks";
 import { apiError, errText } from "@/lib/api-error";
@@ -202,7 +199,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
-    const referenceImageUrls = (await Promise.all(refInputs.map(toRemoteUsableImage))).filter(
+    const provider = createProvider({ name: providerName, apiKey, baseUrl: baseUrl ?? "" });
+    const referenceImageUrls = (await Promise.all(refInputs.map((u) => toProviderImage(u, provider)))).filter(
       (u): u is string => !!u
     );
 
@@ -211,7 +209,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // lip-sync guardrail (advisory, never blocks): overstuffed lines drift out of sync near the
     // end of a segment — surfaced so the UI/CLI can suggest trimming before the paid generation
     const dialogueWarnings = dialogueDensityWarnings(shots);
-    const provider = createProvider({ name: providerName, apiKey, baseUrl: baseUrl ?? "" });
 
     const opts = (options ?? {}) as { width?: number; height?: number };
     const videoOptions = {
@@ -292,16 +289,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 /**
- * Published per-second price for a model, or undefined when the platform doesn't publish one.
- * The catalog endpoint is public (no key needed), so the free dryRun can price a run too.
+ * Published per-second price for a model, or undefined when we have no price source.
+ *
+ * Pricing is advisory: callers fall back to their own estimate, and a missing price must never
+ * block a run. We no longer ship a catalog to read it from, so this reports "unknown".
  */
-async function unitPriceUsd(modelId: string, baseUrl?: string): Promise<number | undefined> {
-  try {
-    await fetchAtlasCatalog(baseUrl?.trim() || ATLAS_BASE_URL);
-    return parseUnitUsd(getCachedAtlasEntry(modelId)?.priceBase);
-  } catch {
-    return undefined; // pricing is advisory — never block a run because the catalog was unreachable
-  }
+function unitPriceUsd(_modelId: string, _baseUrl?: string): number | undefined {
+  return undefined;
 }
 
 /** Download the generated film into the project's output dir and register it as a composition. */

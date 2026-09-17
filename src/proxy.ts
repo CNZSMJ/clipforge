@@ -51,4 +51,10 @@ export function proxy(req: NextRequest) {
   return res;
 }
 
-export const config = { matcher: "/api/:path*" };
+export const config = {
+  // /api/upload is excluded on purpose: matching the proxy makes Next buffer the whole request
+  // body for middleware (capped, and a truncated multipart body fails parsing with a bare 400).
+  // A phone photo album blows past any fixed cap, so the upload route streams its own body and
+  // keeps its own 20MB-per-file limit instead. Everything else still gets the CORS headers.
+  matcher: ["/api/((?!upload).*)"],
+};

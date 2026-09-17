@@ -9,6 +9,8 @@
  * endpoints that genuinely ignore the key (local Ollama). Never pre-fill a placeholder for an endpoint
  * that requires a real key — it disguises "not configured" as "configured".
  */
+import { FAL_LLM_BASE_URL, FAL_ONEKEY_MODELS } from "@/lib/fal-onekey";
+
 export interface LLMPreset {
   label: string;
   baseUrl: string;
@@ -20,9 +22,11 @@ export interface LLMPreset {
 }
 
 export const LLM_PRESETS: LLMPreset[] = [
+  // fal.ai rides its OpenRouter gateway: one fal key covers the LLM too (verified 2026-09-15).
+  // There is no /models endpoint, so the model id is typed rather than picked.
+  { label: "fal.ai (OpenRouter)", baseUrl: FAL_LLM_BASE_URL, model: FAL_ONEKEY_MODELS.llm, tipKey: "presetFalTip" },
   // DeepSeek V4 Pro: flagship writing quality with clean JSON output (real-request verified
   // 2026-08; the v3.2 default before it leaked thinking text into JSON and broke generation)
-  { label: "Atlas Cloud", baseUrl: "https://api.atlascloud.ai/v1", model: "deepseek-ai/deepseek-v4-pro", tipKey: "presetAtlasTip" },
   { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o", tipKey: "presetOpenrouterTip" },
   { label: "DeepSeek", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", tipKey: "presetDeepseekTip" },
   { label: "Kimi", baseUrl: "https://api.moonshot.cn/v1", model: "kimi-k2.5", tipKey: "presetKimiTip" },

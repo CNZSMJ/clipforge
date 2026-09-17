@@ -320,12 +320,6 @@ describe("migrateSettings v2（老用户本地存着已停用的 Pollinations �
     expect(v1.llm.model).toBe("deepseek-v4-flash");
   });
 
-  it("Atlas 旧默认 v3.2（思考文本弄脏 JSON）→ V4 Pro；用户自选的其他模型不动", () => {
-    const migrated = migrateSettings(build({ baseUrl: "https://api.atlascloud.ai/v1", apiKey: "k", model: "deepseek-ai/deepseek-v3.2" }));
-    expect(migrated.llm.model).toBe("deepseek-ai/deepseek-v4-pro");
-    const userPicked = migrateSettings(build({ baseUrl: "https://api.atlascloud.ai/v1", apiKey: "k", model: "zai-org/glm-5.2" }));
-    expect(userPicked.llm.model).toBe("zai-org/glm-5.2");
-  });
 });
 
 describe("optionalParamRetryFetch（可选参数被点名拒绝时去掉重放一次）", () => {
@@ -378,7 +372,7 @@ describe("optionalParamRetryFetch（可选参数被点名拒绝时去掉重放�
 
   it("jsonModeParams 只对已知支持的端点开启", () => {
     expect(jsonModeParams("https://api.deepseek.com/v1")).toEqual({ response_format: { type: "json_object" } });
-    expect(jsonModeParams("https://api.atlascloud.ai/v1")).toEqual({ response_format: { type: "json_object" } });
+    expect(jsonModeParams("https://api.moonshot.cn/v1")).toEqual({ response_format: { type: "json_object" } });
     expect(jsonModeParams("https://gen.pollinations.ai/v1")).toEqual({});
     expect(jsonModeParams("")).toEqual({});
     expect(jsonModeParams(undefined)).toEqual({});

@@ -18,7 +18,7 @@ describe("video model capabilities", () => {
   });
 
   it("finds schema-backed reference siblings and their quotas", () => {
-    const caps = getVideoModelCapabilities("bytedance/seedance-2.5/image-to-video", true, "atlas-cloud");
+    const caps = getVideoModelCapabilities("bytedance/seedance-2.5/image-to-video", true, "fal-ai");
     expect(caps).toMatchObject({
       referenceImages: true,
       referenceVideo: true,
@@ -34,7 +34,7 @@ describe("video model capabilities", () => {
   });
 
   it("does not invent a reference sibling for the fast-only family", () => {
-    const caps = getVideoModelCapabilities("bytedance/seedance-2.0-fast/image-to-video", false, "atlas-cloud");
+    const caps = getVideoModelCapabilities("bytedance/seedance-2.0-fast/image-to-video", false, "fal-ai");
     expect(caps.referenceImages).toBe(false);
     expect(caps.referenceVideo).toBe(false);
   });
@@ -66,7 +66,7 @@ describe("video model capabilities", () => {
   it("keeps provider-hosted custom models permissive when their mode is undeclared", () => {
     const result = preflightVideoGeneration({
       modelId: "my-company/video-v9",
-      provider: "atlas-cloud",
+      provider: "fal-ai",
       resolution: "1080p",
       aspectRatio: "9:16",
       chainMode: "off",
@@ -108,7 +108,7 @@ describe("video model capabilities", () => {
   it("warns before dropping unsupported reference conditioning", () => {
     const result = preflightVideoGeneration({
       modelId: "google/veo3.1/image-to-video",
-      provider: "atlas-cloud",
+      provider: "fal-ai",
       resolution: "1080p",
       aspectRatio: "9:16",
       chainMode: "off",

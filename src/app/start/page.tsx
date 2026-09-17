@@ -4,7 +4,7 @@
  * New "act first, configure later" landing page (dark studio direction).
  * Lives as an independent route /start, leaving the homepage (currently being rewritten for i18n) untouched.
  * Users land and act immediately: upload a product image or describe a topic → kick off generation right away;
- * only prompted to configure a Key when AI is actually needed (Atlas one-click recommended).
+ * only prompted to configure a Key when AI is actually needed (fal one-click recommended).
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -16,7 +16,7 @@ import { useProductLibraryStore } from "@/lib/stores/product-library-store";
 import { useCharacterStore } from "@/lib/stores/project-store";
 import { getExampleProducts, type ExampleProduct } from "@/lib/examples";
 import { useT, useLocale } from "@/lib/i18n";
-import { ATLAS_KEYS_URL } from "@/lib/atlas-onekey";
+import { FAL_KEYS_URL } from "@/lib/fal-onekey";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { classifyTrendTitle, pickDailyTrend, TREND_CATEGORY_IDS } from "@/lib/trends";
 import type { TrendTopic, TrendCategoryId } from "@/lib/trends";
@@ -45,6 +45,44 @@ const FORM_PRESETS = {
 } as const;
 type FormId = keyof typeof FORM_PRESETS;
 
+/**
+ * Phone photos are routinely 10-25MB and a 5-image album blows past any request cap, while the
+ * models never need more than ~2K on the long edge for a keyframe. Shrink in the browser before
+ * uploading so a normal album fits the route's 20MB-per-file limit, and keep the original
+ * untouched whenever shrinking would not actually help.
+ */
+const MAX_UPLOAD_EDGE = 2048;
+const MAX_UPLOAD_BYTES = 18 * 1024 * 1024; // stay under the route's 20MB/file check
+
+async function shrinkForUpload(file: File): Promise<File> {
+  // gif/svg are either animated or vector — re-encoding them through a canvas would destroy them
+  if (!file.type.startsWith("image/") || file.type === "image/gif" || file.type === "image/svg+xml") {
+    return file;
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_UPLOAD_EDGE / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size <= MAX_UPLOAD_BYTES) {
+      bitmap.close?.();
+      return file;
+    }
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { bitmap.close?.(); return file; }
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file; // unsupported decoder → let the server decide
+  }
+}
+
 interface PickedImage {
   id: string;
   url: string;
@@ -62,8 +100,8 @@ export default function StartPage() {
   const router = useRouter();
   const t = useT("start");
   const locale = useLocale();
-  const { llm } = useSettingsStore();
-  const applyAtlasOneKey = useSettingsStore((s) => s.applyAtlasOneKey);
+  const { llm, providers } = useSettingsStore();
+  const applyFalOneKey = useSettingsStore((s) => s.applyFalOneKey);
   const llmReady = llm.apiKey.trim().length > 0;
   // example products follow the UI language
   const examples = getExampleProducts(locale);
@@ -88,7 +126,7 @@ export default function StartPage() {
   const [stageIdx, setStageIdx] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [needKey, setNeedKey] = useState(false);
-  const [atlasKey, setAtlasKey] = useState("");
+  const [falKey, setFalKey] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentProject[]>([]);
@@ -387,10 +425,17 @@ export default function StartPage() {
     setStageIdx(1);
     setStage(t("stageUpload"));
     const fd = new FormData();
-    images.forEach((i) => fd.append("files", i.file));
+    for (const image of await Promise.all(images.map((i) => shrinkForUpload(i.file)))) {
+      fd.append("files", image);
+    }
     fd.append("projectId", project.id);
     const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
-    if (!uploadRes.ok) throw new Error(t("errUpload"));
+    if (!uploadRes.ok) {
+      // surface the server's own reason (too large / unsupported type). A blanket "network" message
+      // sent users chasing a connection problem when the real answer was a 20MB file limit.
+      const errData = await uploadRes.json().catch(() => ({}));
+      throw new Error(errData.error || t("errUpload"));
+    }
     const { paths } = await uploadRes.json();
     await fetch(`/api/project/${project.id}`, {
       method: "PATCH",
@@ -475,8 +520,16 @@ export default function StartPage() {
 
   const onStart = () => {
     if (!canStart || busy) return;
-    // no LLM configured: expand the Atlas one-click setup panel inline (no navigation, no loss of filled content)
+    // no LLM configured: expand the fal one-click setup panel inline (no navigation, no loss of filled content)
     if (!llmReady) {
+      // A fal key already saved under AI platforms covers the LLM too (its OpenRouter route shares
+      // the key), so wire it up instead of asking the user to paste the same key a second time.
+      const configuredFalKey = providers["fal-ai"]?.apiKey?.trim();
+      if (configuredFalKey) {
+        applyFalOneKey(configuredFalKey);
+        void runGeneration();
+        return;
+      }
       setNeedKey(true);
       // the panel may be mounting this very tick — defer the scroll until React has committed it to the DOM
       requestAnimationFrame(() => {
@@ -489,9 +542,9 @@ export default function StartPage() {
     runGeneration();
   };
 
-  // paste an Atlas Key → validate → write full config → immediately continue with generation
-  const connectAtlasAndStart = async () => {
-    const key = atlasKey.trim();
+  // paste a fal key → validate → write the full config → immediately continue with generation
+  const connectFalAndStart = async () => {
+    const key = falKey.trim();
     if (!key || connecting || busy) return;
     setConnecting(true);
     setConnectError(null);
@@ -499,21 +552,21 @@ export default function StartPage() {
       const res = await fetch("/api/ai/test-provider", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "atlas-cloud", apiKey: key }),
+        body: JSON.stringify({ name: "fal-ai", apiKey: key }),
       });
       const data = await res.json().catch(() => ({ status: "unknown" }));
       // only block on "explicitly invalid"; unknown (network/endpoint uncertainty) passes through and lets generation attempt proceed
       if (data.status === "invalid") {
-        setConnectError(t("atlasKeyInvalid"));
+        setConnectError(t("falKeyInvalid"));
         setConnecting(false);
         return;
       }
-      applyAtlasOneKey(key);
+      applyFalOneKey(key);
       setConnecting(false);
       setNeedKey(false);
       await runGeneration();
     } catch {
-      setConnectError(t("atlasConnectFailed"));
+      setConnectError(t("falConnectFailed"));
       setConnecting(false);
     }
   };
@@ -801,34 +854,34 @@ export default function StartPage() {
             {needKey && !llmReady && (
               <div className="cf-keyform" ref={keyformRef}>
                 <div className="cf-keyhead">
-                  <span className="badge">{t("atlasBadge")}</span>
-                  {t("atlasTitle")}
-                  <button type="button" className="cf-keyclose" aria-label={t("atlasDismiss")} title={t("atlasDismiss")} onClick={() => setNeedKey(false)}>
+                  <span className="badge">{t("falBadge")}</span>
+                  {t("falTitle")}
+                  <button type="button" className="cf-keyclose" aria-label={t("falDismiss")} title={t("falDismiss")} onClick={() => setNeedKey(false)}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                   </button>
                 </div>
                 <div className="cf-keydesc">
-                  {t("atlasDesc")}{" "}
-                  <a href={ATLAS_KEYS_URL} target="_blank" rel="noreferrer">{t("atlasGetKey")} ↗</a>
+                  {t("falDesc")}{" "}
+                  <a href={FAL_KEYS_URL} target="_blank" rel="noreferrer">{t("falGetKey")} ↗</a>
                 </div>
                 <div className="cf-keyrow">
                   <input
                     className="cf-keyinput"
                     type="password"
-                    value={atlasKey}
+                    value={falKey}
                     autoFocus
-                    onChange={(e) => setAtlasKey(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") connectAtlasAndStart(); }}
-                    placeholder={t("atlasKeyPlaceholder")}
+                    onChange={(e) => setFalKey(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") connectFalAndStart(); }}
+                    placeholder={t("falKeyPlaceholder")}
                   />
-                  <button className="cf-keybtn" onClick={connectAtlasAndStart} disabled={atlasKey.trim().length === 0 || connecting || busy}>
-                    {connecting ? t("atlasConnecting") : busy ? (stage || t("busyDefault")) : t("atlasConnectStart")}
+                  <button className="cf-keybtn" onClick={connectFalAndStart} disabled={falKey.trim().length === 0 || connecting || busy}>
+                    {connecting ? t("falConnecting") : busy ? (stage || t("busyDefault")) : t("falConnectStart")}
                     {!connecting && !busy && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>}
                   </button>
                 </div>
                 {connectError && <div className="cf-keyerr">{connectError}</div>}
                 <div className="cf-keyalt">
-                  <Link href="/settings?tab=llm">{t("atlasUseOther")}</Link>
+                  <Link href="/settings?tab=llm">{t("falUseOther")}</Link>
                 </div>
               </div>
             )}
@@ -837,7 +890,7 @@ export default function StartPage() {
                 {busy ? (stage || t("busyDefault")) : t("ctaStart")}
                 {!busy && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>}
               </button>
-              <div className="cf-reassure">{t("reassureLead")}<b>Atlas Cloud</b>{t("reassureTail")}</div>
+              <div className="cf-reassure">{t("reassureLead")}<b>fal.ai</b>{t("reassureTail")}</div>
             </div>
             {error && <div className="cf-err">{error}</div>}
               </>

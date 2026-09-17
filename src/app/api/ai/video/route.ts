@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createProvider } from "@/lib/providers";
 import { ProviderError } from "@/lib/providers/base";
-import { toRemoteUsableImage, resolveUploadFilePath } from "@/lib/remote-image";
+import { toProviderImage, resolveUploadFilePath } from "@/lib/remote-image";
 import { apiError, errText } from "@/lib/api-error";
 import { recordAiTask, updateAiTask } from "@/lib/ai-tasks";
 import { sanitizeGenerationControlSummary } from "@/lib/video-repair-plan";
@@ -28,14 +28,15 @@ export async function POST(req: NextRequest) {
   try {
     const provider = createProvider({ name: providerName, apiKey, baseUrl });
 
-    const firstFrameUrl = await toRemoteUsableImage(imageUrl);
+    // Staged on the provider's CDN so the model receives a URL, per fal's file-input contract.
+    const firstFrameUrl = await toProviderImage(imageUrl, provider);
     // Keyframe chaining: pin the clip's last frame to the next
     // shot's keyframe so the transition is generated inside the clip (seamless on hard concat)
-    const lastFrameUrl = lastImageUrl ? await toRemoteUsableImage(lastImageUrl) : undefined;
+    const lastFrameUrl = lastImageUrl ? await toProviderImage(lastImageUrl, provider) : undefined;
 
     // Reference-to-video inputs (viral replication): reference IMAGES may travel as Base64
     // like first frames, but reference VIDEOS must be real URLs — local /api/files paths
-    // are uploaded to the provider's temporary hosting first (Atlas /model/uploadMedia)
+    // are uploaded to the provider's temporary hosting first (fal storage, see uploadLocalMedia)
     let refVideos: string[] | undefined;
     let refImages: string[] | undefined;
     let refAudios: string[] | undefined;
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
     }
     if (Array.isArray(referenceImageUrls) && referenceImageUrls.length > 0) {
       const imageRefs = (referenceImageUrls as unknown[]).filter((ref): ref is string => typeof ref === "string" && Boolean(ref)).slice(0, 9);
-      refImages = (await Promise.all(imageRefs.map(toRemoteUsableImage))).filter(
+      refImages = (await Promise.all(imageRefs.map((u) => toProviderImage(u, provider)))).filter(
         (u): u is string => !!u
       );
     }

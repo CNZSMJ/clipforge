@@ -11,7 +11,7 @@ import { assets, generationReviews } from "@/lib/db/schema";
 import { probeMedia } from "@/lib/media-probe";
 import { createProvider } from "@/lib/providers";
 import { ProviderError } from "@/lib/providers/base";
-import { resolveUploadFilePath, toRemoteUsableImage } from "@/lib/remote-image";
+import { resolveUploadFilePath, toProviderImage } from "@/lib/remote-image";
 import {
   buildVideoRepairPreview,
   sanitizeTimedKeyframes,
@@ -25,6 +25,9 @@ import { extractFrameAtTime } from "@/lib/video-composer/frame-extract";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Providers whose video API can stage a local file for reference-conditioned repair. */
+const UPLOAD_CAPABLE_PROVIDERS = new Set(["fal-ai", "volcengine"]);
 
 const SAFE_ID = /^[a-zA-Z0-9-]+$/;
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
@@ -96,7 +99,7 @@ async function compilePreview(projectId: string, body: RepairRequest, forceOpera
     requestedScope: body.scope,
     requestedRegion: body.region,
     keyframes: requestedKeyframes,
-    sourceUploadAvailable: provider === "atlas-cloud",
+    sourceUploadAvailable: UPLOAD_CAPABLE_PROVIDERS.has(provider),
     pricePerCall: body.pricePerCall,
   });
   return { preview, context };
@@ -132,7 +135,7 @@ async function executeRepair(projectId: string, body: RepairRequest) {
     const extraImages: string[] = [];
     for (const keyframe of preview.summary.keyframes) {
       const asset = context.projectAssets.find((row) => row.id === keyframe.assetId);
-      const usable = asset?.filePath ? await toRemoteUsableImage(asset.filePath) : undefined;
+      const usable = asset?.filePath ? await toProviderImage(asset.filePath, provider) : undefined;
       if (!usable) throw new Error(`时间锚点 ${keyframe.assetId} 无法安全传给模型，未提交付费任务`);
       extraImages.push(usable);
     }

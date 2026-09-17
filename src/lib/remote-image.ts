@@ -2,6 +2,14 @@ import { readFile } from "fs/promises";
 import { join, sep } from "path";
 import { getDataDir } from "@/lib/paths";
 
+/** Provider capability needed to stage a local file on its own CDN. */
+export interface LocalMediaUploader {
+  uploadLocalMedia?: (filePath: string) => Promise<string>;
+}
+
+/** local file path → already-uploaded CDN URL, so one product image is staged once per process. */
+const uploadedUrlCache = new Map<string, string>();
+
 /**
  * Resolve a local `/api/files/{relative-path}` reference to a safe absolute path inside the uploads directory.
  *
@@ -19,6 +27,36 @@ export function resolveUploadFilePath(ref: string): string | null {
   const filePath = join(uploadsRoot, m[1]);
   if (filePath !== uploadsRoot && !filePath.startsWith(uploadsRoot + sep)) return null; // path traversal detected, reject
   return filePath;
+}
+
+/**
+ * Turn a local `/api/files/...` reference into something the provider can actually fetch.
+ *
+ * fal's docs are explicit that file inputs are URLs and that data URIs "inflate the request size
+ * significantly ... not recommended for files larger than a few KB" — passing product photos as
+ * base64 is also what kept blowing past request-body limits. Providers that expose
+ * `uploadLocalMedia` (fal CDN, Atlas) therefore get a real URL; the rest keep the data URI they
+ * require.
+ */
+export async function toProviderImage(
+  ref: string | undefined,
+  provider: LocalMediaUploader | undefined
+): Promise<string | undefined> {
+  if (!ref) return undefined;
+  if (ref.startsWith("http") || ref.startsWith("data:")) return ref;
+  const filePath = resolveUploadFilePath(ref);
+  if (!filePath) return ref;
+  if (!provider?.uploadLocalMedia) return toRemoteUsableImage(ref);
+  const cached = uploadedUrlCache.get(filePath);
+  if (cached) return cached;
+  try {
+    const url = await provider.uploadLocalMedia(filePath);
+    uploadedUrlCache.set(filePath, url);
+    return url;
+  } catch {
+    // staging is an optimisation, never a hard requirement — fall back to the inline form
+    return toRemoteUsableImage(ref);
+  }
 }
 
 /**

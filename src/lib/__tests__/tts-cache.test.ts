@@ -35,7 +35,7 @@ describe("ttsCacheKey 内容寻址键", () => {
   });
 
   it("任一字段变化 → key 变化", () => {
-    const base = { provider: "atlas", model: "xai/tts-v1", voice: "eve", speed: 1, text: "hi" };
+    const base = { provider: "falai", model: "fal-ai/minimax/speech-02-hd", voice: "Wise_Woman", speed: 1, text: "hi" };
     const k = ttsCacheKey(base);
     expect(ttsCacheKey({ ...base, provider: "minimax" })).not.toBe(k);
     expect(ttsCacheKey({ ...base, model: "xai/tts-v2" })).not.toBe(k);

@@ -13,7 +13,7 @@
  */
 import type { Shot, ScriptCharacter } from "@/lib/db/schema";
 import { stripPauseMarks } from "@/lib/voice-markup";
-import { getVideoParamSpec } from "@/lib/providers/atlas-video-params";
+import { getVideoParamSpec } from "@/lib/providers/video-params";
 
 /** Seedance 2.5 duration bounds (schema: integer 4-30 seconds) */
 export const FILM_MIN_SECONDS = 4;
@@ -112,7 +112,7 @@ export interface FilmSpendEstimate {
  * Cost multiplier over the published base rate, by resolution tier.
  *
  * Providers price resolution tiers as separate products, but the catalog publishes ONE
- * base_price per model — the cheapest tier. Measured on Atlas (2026-09, 5s reference-to-video,
+ * base_price per model — the cheapest tier. Measured on a gateway (2026-09, 5s reference-to-video,
  * 9:16 vertical, actual invoiced cost):
  *
  *   Seedance 2.5 @1080p  $2.98 / 5s = $0.596/s  vs  $0.134 base  ->  4.45x
@@ -152,7 +152,7 @@ export function tierMultiplierFor(width: number | undefined, height: number | un
 /**
  * Estimated cost range for one film generation.
  *
- * Atlas publishes video pricing per second of output (`price.actual.base_price`, already
+ * The provider publishes video pricing per second of output (`price.actual.base_price`, already
  * discounted; models that declare a `unit` all say "second", and every rate spot-checked
  * against the model docs matched exactly). Callers should render the arithmetic, not just the
  * total — showing "$0.134/s x 30s" keeps the per-second assumption visible instead of burying

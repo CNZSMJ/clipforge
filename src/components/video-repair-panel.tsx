@@ -42,7 +42,7 @@ export function VideoRepairPanel(props: {
   const t = useT("production");
   const locale = useLocale();
   const repairModels = useMemo(() => props.models.filter((model) => {
-    if (model.mediaType !== "video" || model.provider !== "atlas-cloud" || !props.providers[model.provider]?.apiKey) return false;
+    if (model.mediaType !== "video" || !props.providers[model.provider]?.apiKey) return false;
     const capabilities = getVideoModelCapabilities(model.id, model.supportsAudio, model.provider);
     const isReferenceEndpoint = model.modes.includes("video-to-video");
     const hasKnownReferenceSibling = /\/(?:text|image)-to-video$/.test(model.id) && capabilities.referenceVideo === true;

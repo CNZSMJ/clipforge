@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { buildVideoControlPlan, sanitizeVideoControlSummary } from "@/lib/video-control-plan";
 
 describe("video control plan", () => {
-  it("uses an Atlas reference sibling for a multi-subject pack", () => {
+  it("uses a reference sibling for a multi-subject pack", () => {
     const plan = buildVideoControlPlan({
-      provider: "atlas-cloud",
+      provider: "fal-ai",
       modelId: "bytedance/seedance-2.5/image-to-video",
       supportsAudio: true,
       firstFrameUrl: "https://e.com/key.png",
@@ -30,7 +30,7 @@ describe("video control plan", () => {
 
   it("keeps identity references and carries the end frame as a target anchor", () => {
     const plan = buildVideoControlPlan({
-      provider: "atlas-cloud",
+      provider: "fal-ai",
       modelId: "bytedance/seedance-2.5/image-to-video",
       firstFrameUrl: "https://e.com/key.png",
       lastFrameUrl: "https://e.com/end.png",
@@ -52,7 +52,7 @@ describe("video control plan", () => {
 
   it("keeps native start/end frames when only a soft continuity reference competes", () => {
     const plan = buildVideoControlPlan({
-      provider: "atlas-cloud",
+      provider: "fal-ai",
       modelId: "bytedance/seedance-2.5/image-to-video",
       firstFrameUrl: "https://e.com/key.png",
       lastFrameUrl: "https://e.com/end.png",

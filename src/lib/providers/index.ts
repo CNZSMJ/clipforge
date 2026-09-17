@@ -4,7 +4,6 @@
  */
 
 import type { AIProvider, ProviderConfig, ProviderRegistration } from './types'
-import { AtlasCloudProvider } from './atlas-cloud'
 import { FalAIProvider } from './fal-ai'
 import { VolcEngineProvider } from './volcengine'
 import { ReplicateProvider } from './replicate'
@@ -26,13 +25,6 @@ function registerProvider(registration: ProviderRegistration): void {
 }
 
 // 注册所有内置 Provider
-registerProvider({
-  name: 'atlas-cloud',
-  displayName: 'Atlas Cloud',
-  description: 'Atlas Cloud AI 平台，支持图片和视频生成',
-  factory: (config) => new AtlasCloudProvider(config),
-})
-
 registerProvider({
   name: 'fal-ai',
   displayName: 'fal.ai',
@@ -153,7 +145,6 @@ export type {
 } from './types'
 
 export { BaseProvider, ProviderError } from './base'
-export { AtlasCloudProvider } from './atlas-cloud'
 export { FalAIProvider } from './fal-ai'
 export { VolcEngineProvider } from './volcengine'
 export { AlibabaProvider } from './alibaba'

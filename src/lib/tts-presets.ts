@@ -1,14 +1,14 @@
 /**
  * Paid TTS platform presets (pure data, shared between client and server, no server-only dependencies).
  *
- * Unified "platform" dropdown: OpenAI-compatible / Atlas Cloud / MiniMax / fal.ai.
- * Atlas and fal reuse the API key already entered under the same provider in the "AI Platform" tab;
+ * Unified "platform" dropdown: OpenAI-compatible / MiniMax / fal.ai.
+ * fal reuses the API key already entered under the same provider in the "AI Platform" tab;
  * MiniMax has its own separate key (plus an optional GroupId).
  * Each platform provides default baseUrl/model/voice so the UI can conditionally render fields
  * and offer voice suggestions accordingly.
  */
 
-export type TTSProvider = "openai" | "atlas" | "minimax" | "falai";
+export type TTSProvider = "openai" | "minimax" | "falai";
 
 export interface TTSVoiceOption {
   value: string;
@@ -31,9 +31,9 @@ export interface TTSProviderMeta {
   /**
    * Key source:
    * - "tts": use the apiKey stored in the TTS config itself (OpenAI-compatible / MiniMax)
-   * - others: reuse the apiKey of the matching provider in the "AI Platform" store (atlas-cloud / fal-ai)
+   * - falai: reuse the apiKey of the matching provider in the "AI Platform" store
    */
-  keySource: "tts" | "atlas-cloud" | "fal-ai";
+  keySource: "tts" | "fal-ai";
   /** Whether a GroupId is required (needed for the MiniMax domestic endpoint api.minimax.chat) */
   needsGroupId?: boolean;
   /** Whether to expose a baseUrl input field (OpenAI-compatible and MiniMax support switching regional endpoints) */
@@ -61,23 +61,6 @@ export const TTS_PROVIDERS: TTSProviderMeta[] = [
     keySource: "tts",
     editableBaseUrl: true,
     hint: "兼容 OpenAI tts-1、硅基流动 CosyVoice、火山方舟等所有 /audio/speech 端点。",
-  },
-  {
-    value: "atlas",
-    label: "Atlas Cloud (xAI TTS)",
-    baseUrl: "https://api.atlascloud.ai/api/v1",
-    defaultModel: "xai/tts-v1",
-    models: [{ value: "xai/tts-v1", label: "xAI TTS v1（多语高保真）" }],
-    defaultVoice: "eve",
-    voices: [
-      { value: "eve", label: "Eve · 多语女声（默认）" },
-      { value: "leo", label: "Leo · 多语男声" },
-      { value: "rex", label: "Rex · 多语男声" },
-      { value: "ara", label: "Ara · 多语女声" },
-      { value: "sal", label: "Sal · 多语男声" },
-    ],
-    keySource: "atlas-cloud",
-    hint: "复用「AI 平台」里 Atlas Cloud 的 Key（与生图/生视频同一个）。",
   },
   {
     value: "minimax",
@@ -165,7 +148,7 @@ export interface ResolvedTTSConfig {
 /**
  * Resolves the "platform selection + reused AI platform key" into a complete TTS config
  * ready to send to the backend.
- * Atlas/fal keys are taken from the providers store; OpenAI-compatible/MiniMax use the TTS's own key.
+ * The fal key is taken from the providers store; OpenAI-compatible/MiniMax use the TTS's own key.
  */
 export function resolveTTSConfig(tts: TTSSettingLike | undefined, providers: ProvidersLike): ResolvedTTSConfig {
   const meta = getTTSProviderMeta(tts?.provider);

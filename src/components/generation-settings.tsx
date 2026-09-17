@@ -25,7 +25,6 @@ import {
 
 // platforms that support custom model attachment (keys match settings.providers)
 const PROVIDER_OPTIONS: { value: string; label: string }[] = [
-  { value: "atlas-cloud", label: "Atlas Cloud" },
   { value: "fal-ai", label: "fal.ai" },
   { value: "replicate", label: "Replicate" },
   { value: "volcengine", label: "火山引擎" },

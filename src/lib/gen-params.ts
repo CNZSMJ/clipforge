@@ -2,7 +2,7 @@
  * Pure logic layer for image/video generation "custom parameters" + "custom model endpoints"
  * (shared between frontend and backend, no server-only dependencies).
  *
- * - Custom models: users can attach any model id on an existing platform (atlas-cloud / fal-ai / replicate…).
+ * - Custom models: users can attach any model id on an existing platform (fal-ai / replicate / volcengine…).
  *   The backend /api/ai/image|video already forwards the model to the provider as-is, so adding one entry
  *   makes it immediately selectable from the dropdown.
  * - Custom parameters: maps global defaults from Settings (aspect ratio / resolution / steps / guidance /

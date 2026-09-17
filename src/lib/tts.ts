@@ -4,7 +4,6 @@
  * Supports four paid TTS providers, dispatched by config.provider
  * (defaults to "openai" for backward compatibility with legacy configs):
  * - openai: OpenAI-compatible /audio/speech (tts-1 / SiliconFlow CosyVoice / Volcengine Ark…), synchronous mp3.
- * - atlas: Atlas Cloud generateAudio (xai/tts-v1), async — submit, get prediction id, then poll for audio URL.
  * - minimax: MiniMax Hailuo T2A v2, synchronous hex-encoded mp3 (domestic endpoint requires GroupId).
  * - falai: fal.ai (MiniMax Speech-02), queue async — submit, poll status, fetch audio.url on completion.
  *
@@ -19,7 +18,7 @@ import { stripPauseMarks } from "@/lib/voice-markup";
 export interface TTSConfig {
   /** Platform; defaults to "openai" */
   provider?: TTSProvider;
-  /** baseUrl (meaning varies by platform: root for OpenAI-compatible, service root for Atlas/MiniMax/fal) */
+  /** baseUrl (meaning varies by platform: root for OpenAI-compatible, service root for MiniMax/fal) */
   baseUrl: string;
   apiKey: string;
   /** Model id */
@@ -163,8 +162,6 @@ export function estimateSpeechSeconds(text: string): number {
 
 function dispatchTTS(clean: string, config: TTSConfig): Promise<Buffer> {
   switch (config.provider) {
-    case "atlas":
-      return generateSpeechAtlas(clean, config);
     case "minimax":
       return generateSpeechMiniMax(clean, config);
     case "falai":
@@ -226,78 +223,6 @@ async function generateSpeechOpenAI(text: string, config: TTSConfig): Promise<Bu
     throw new Error(`TTS 请求失败: ${resp.status} ${resp.statusText} - ${clipErr(errText)}`);
   }
   return Buffer.from(await resp.arrayBuffer());
-}
-
-// ==================== Atlas Cloud generateAudio（异步轮询） ====================
-
-interface AtlasPrediction {
-  id?: string;
-  status?: string;
-  outputs?: string[];
-  output?: string | { audio?: string; url?: string };
-  audio?: string;
-  error?: string;
-  data?: AtlasPrediction;
-}
-
-async function generateSpeechAtlas(text: string, config: TTSConfig): Promise<Buffer> {
-  const base = (config.baseUrl || "https://api.atlascloud.ai/api/v1").replace(/\/$/, "");
-  const headers = { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" };
-
-  const submit = await fetch(`${base}/model/generateAudio`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: config.model || "xai/tts-v1",
-      text,
-      language: "auto",
-      voice_id: config.voice || "eve",
-      codec: "mp3",
-      ...(config.speed != null && { speed: clamp(config.speed, 0.7, 1.5) }),
-    }),
-    signal: AbortSignal.timeout(30000), // 30s timeout on submit to avoid hanging
-  });
-  if (!submit.ok) {
-    const t = await submit.text().catch(() => "");
-    throw new Error(`Atlas TTS 提交失败: ${submit.status} - ${clipErr(t)}`);
-  }
-  const sj = (await submit.json()) as { data?: { id?: string }; id?: string };
-  const taskId = sj?.data?.id ?? sj?.id;
-  if (!taskId) throw new Error("Atlas TTS 未返回任务 id");
-
-  // Poll for prediction result (TTS usually completes within a few seconds)
-  for (let i = 0; i < 60; i++) {
-    await sleep(1000);
-    // 10s timeout per poll; on timeout or network jitter just skip this round and retry next,
-    // so a single slow poll doesn't deadlock the entire generation
-    let pr: Response;
-    try {
-      pr = await fetch(`${base}/model/prediction/${taskId}`, { headers, signal: AbortSignal.timeout(10000) });
-    } catch {
-      continue;
-    }
-    if (!pr.ok) continue;
-    let raw: AtlasPrediction;
-    try {
-      raw = (await pr.json()) as AtlasPrediction;
-    } catch {
-      continue; // malformed JSON on a 200 → skip this poll and retry, don't crash the whole generation
-    }
-    const p: AtlasPrediction = raw.data ?? raw;
-    const status = (p.status || "").toLowerCase();
-    if (status === "completed" || status === "succeeded") {
-      const audio =
-        p.outputs?.[0] ??
-        (typeof p.output === "string" ? p.output : p.output?.url || p.output?.audio) ??
-        p.audio;
-      if (!audio) throw new Error("Atlas TTS 完成但未返回音频");
-      return audioToBuffer(audio);
-    }
-    if (status === "failed" || status === "error") {
-      throw new Error(`Atlas TTS 失败: ${p.error || status}`);
-    }
-  }
-  throw new Error("Atlas TTS 轮询超时");
 }
 
 // ==================== MiniMax 海螺 T2A v2（hex 解码） ====================
@@ -382,7 +307,7 @@ async function generateSpeechFal(text: string, config: TTSConfig): Promise<Buffe
   for (let i = 0; i < 60; i++) {
     await sleep(1000);
     // Network jitter or a malformed status/result response must not crash the whole generation —
-    // skip this poll and retry next round (mirrors the Atlas polling loop's resilience).
+    // skip this poll and retry next round (transient status-query failures are tolerated).
     let status: string;
     try {
       const st = await fetch(statusUrl, { headers, signal: AbortSignal.timeout(10000) });

@@ -155,7 +155,7 @@ export function tokenCapRetryFetch(
  * forbids top-level arrays), and the prompt must mention "JSON" (all of ours do).
  */
 export function jsonModeParams(baseUrl?: string): { response_format?: { type: "json_object" } } {
-  return /deepseek|openai\.com|moonshot|bigmodel\.cn|atlascloud|siliconflow|dashscope/i.test(baseUrl || "")
+  return /deepseek|openai\.com|moonshot|bigmodel\.cn|siliconflow|dashscope/i.test(baseUrl || "")
     ? { response_format: { type: "json_object" } }
     : {};
 }
@@ -210,7 +210,6 @@ export function createLLMClient(config: LLMClientConfig): OpenAI {
   // in 5s, so retrying would just make the user wait 15s for the same message.
   const retryFreePool402 = isPollinations(config.baseUrl) && !config.apiKey;
   return new OpenAI({
-    // normalized so Atlas' media base pasted into the LLM field still reaches the chat gateway
     baseURL: config.baseUrl ? normalizeChatBase(config.baseUrl) : config.baseUrl,
     apiKey: config.apiKey || "no-key",
     // SDK default is 2; free/shared endpoints flap enough to be worth one more attempt.

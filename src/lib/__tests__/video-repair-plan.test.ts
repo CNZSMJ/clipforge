@@ -58,13 +58,13 @@ describe("video repair planning", () => {
     ], 8)).toHaveLength(4);
   });
 
-  it("previews an Atlas reference repair with explicit local-splice fallbacks", () => {
+  it("previews a reference repair with explicit local-splice fallbacks", () => {
     const preview = buildVideoRepairPreview({
       operationId: "op-1",
       sourceAssetId: "asset-1",
       reviewId: "review-1",
       shotId: 2,
-      provider: "atlas-cloud",
+      provider: "fal-ai",
       model: "bytedance/seedance-2.0/image-to-video",
       supportsAudio: true,
       sourceDuration: 8,
@@ -92,7 +92,7 @@ describe("video repair planning", () => {
   it("rejects a summary whose confirmed window was changed", () => {
     const preview = buildVideoRepairPreview({
       operationId: "op-2", sourceAssetId: "asset-1", reviewId: "review-1", shotId: 2,
-      provider: "atlas-cloud", model: "bytedance/seedance-2.0/reference-to-video",
+      provider: "fal-ai", model: "bytedance/seedance-2.0/reference-to-video",
       sourceDuration: 8, report, contract, sourceUploadAvailable: true,
     });
     expect(sanitizeVideoRepairSummary({ ...preview.summary, window: { start: 0, end: 8 } })).toBeNull();
