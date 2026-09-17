@@ -1,0 +1,76 @@
+name: Verify and publish Fal review
+on:
+  push:
+    branches: [feat/fal-migration]
+permissions:
+  contents: read
+concurrency:
+  group: apply-fal-review
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'CNZSMJ/clipforge' && startsWith(github.event.head_commit.message, 'ci: verify and publish audited fal fixes')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Apply checksum-verified review changes
+        run: python3 .github/apply-fal-review.py
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+      - name: Lint
+        run: pnpm lint
+      - name: Full regression suite
+        run: pnpm exec vitest run --reporter=default --reporter=json --outputFile=/tmp/fal-review-tests.json
+      - name: Production build
+        run: set -o pipefail; pnpm build 2>&1 | tee /tmp/fal-review-build.log
+      - name: Preserve verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fal-review-verification
+          path: |
+            /tmp/fal-review-tests.json
+            /tmp/fal-review-build.log
+          retention-days: 14
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Guard against concurrent branch updates
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          test "$(git ls-remote origin refs/heads/feat/fal-migration | cut -f1)" = "$EXPECTED_HEAD"
+      - name: Publish verified source without changing workflows
+        run: |
+          python3 .github/apply-fal-review.py --publish
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(fal): harden migration contracts, continuity, media transfer and paid-task recovery' -m 'Includes 151 regression tests and docs/fal-migration-review.md. Verified source tree b93de2af5bc453a2cb5f14fb411ec24d9476de53. No paid inference performed.'
+          git push origin HEAD:refs/heads/feat/fal-migration
+          echo "Published commit $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
