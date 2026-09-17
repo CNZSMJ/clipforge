@@ -25,13 +25,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
-      - name: Export offline test dependencies (temporary audit snapshot)
-        run: |
-          tar -czf review-dependencies.tar.gz --exclude='node_modules/.pnpm/onnxruntime*' --exclude='node_modules/.pnpm/@huggingface*' --exclude='node_modules/.pnpm/@next+swc*' --exclude='node_modules/.pnpm/@img+sharp*' --exclude='node_modules/.pnpm/electron@*' --exclude='*/ffmpeg-static/ffmpeg' --exclude='*/ffprobe-linux-*/bin/ffprobe' node_modules
-      - name: Fetch public model contracts (no inference calls or credentials)
+      - name: Inspect public contracts and integration (no inference or credentials)
         run: |
           python3 - <<'PY'
-          import concurrent.futures, json, pathlib, re, urllib.request, urllib.parse
+          import concurrent.futures, json, pathlib, re, urllib.request, urllib.parse, subprocess
           root = pathlib.Path('src/lib/providers')
           ids = set(re.findall(r"id:\s*'([^']+/[^']+)'", (root/'fal-ai.ts').read_text()))
           for name in ['fal-video-params.ts', 'fal-image-params.ts']:
@@ -41,21 +38,39 @@ jobs:
               try:
                   url = 'https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=' + urllib.parse.quote(endpoint, safe='')
                   with urllib.request.urlopen(url, timeout=40) as response:
-                      return endpoint, {'schema': json.load(response)}
+                      schema = json.load(response)
+                  def deref(value):
+                      if not isinstance(value, dict): return value
+                      if '$ref' in value:
+                          result = schema
+                          for key in value['$ref'].removeprefix('#/').split('/'): result = result[key]
+                          return result
+                      return value
+                  entries = []
+                  for path, methods in schema.get('paths', {}).items():
+                      post = methods.get('post', {})
+                      body = post.get('requestBody', {}).get('content', {}).get('application/json', {}).get('schema')
+                      if not body: continue
+                      body = deref(body)
+                      props = {}
+                      for name, info in body.get('properties', {}).items():
+                          info = deref(info)
+                          props[name] = {k: info[k] for k in ['type','enum','default','minimum','maximum','minItems','maxItems','anyOf','oneOf'] if k in info}
+                      entries.append({'path':path,'required':body.get('required',[]),'fields':props})
+                  return {'endpoint':endpoint,'inputs':entries}
               except Exception as error:
-                  return endpoint, {'error': str(error)}
+                  return {'endpoint':endpoint,'error':str(error)}
+          print('BEGIN FAL PUBLIC CONTRACTS')
           with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-              data = dict(pool.map(fetch, sorted(ids)))
-          pathlib.Path('review-fal-schemas.json').write_text(json.dumps(data))
-          print('Public schema endpoints inspected:', len(data))
+              for result in pool.map(fetch, sorted(ids)): print(json.dumps(result, ensure_ascii=False))
+          print('END FAL PUBLIC CONTRACTS')
+          print('BEGIN MIGRATION CALL SITES')
+          subprocess.run(['git','grep','-n','-E','atlas|toProviderImage|toRemoteUsableImage|uploadLocalMedia|downloadFile|downloadVideo|resultUrls','--','src/lib','src/app/api','src/lib/stores'], check=False)
+          print('END MIGRATION CALL SITES')
+          for path in pathlib.Path('node_modules/next/dist/docs').rglob('route.md*'):
+              print('NEXT ROUTE GUIDE', path)
+              print('\n'.join(path.read_text().splitlines()[:140]))
           PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: migration-review-environment
-          path: |
-            review-dependencies.tar.gz
-            review-fal-schemas.json
-          retention-days: 1
       - name: Lint
         run: pnpm lint
       - name: Regression tests
