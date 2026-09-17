@@ -1,3 +1,13 @@
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+# Postinstalls that must run: better-sqlite3 (native), esbuild, electron, ffmpeg-static (downloads
+# the binary) and @ffprobe-installer (marks its shipped ffprobe executable). pnpm 10 skips unknown
+# build scripts by default, which left the bundled ffprobe non-executable.
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+  - electron
+  - ffmpeg-static
+  - "@ffprobe-installer/ffprobe"
+  - "@ffprobe-installer/darwin-arm64"
