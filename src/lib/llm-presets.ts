@@ -15,6 +15,8 @@ export interface LLMPreset {
   label: string;
   baseUrl: string;
   model: string;
+  /** A distinct vision default; omit to reuse the text model. */
+  visionModel?: string;
   /** i18n key for the short tip shown next to the label (empty = no tip) */
   tipKey?: string;
   /** placeholder key for keyless endpoints only */
@@ -24,10 +26,10 @@ export interface LLMPreset {
 export const LLM_PRESETS: LLMPreset[] = [
   // fal.ai rides its OpenRouter gateway: one fal key covers the LLM too (verified 2026-09-15).
   // Discovery uses the public OpenRouter catalogue; model-level access is tested separately.
-  { label: "fal.ai (OpenRouter)", baseUrl: FAL_LLM_BASE_URL, model: FAL_ONEKEY_MODELS.llm, tipKey: "presetFalTip" },
+  { label: "fal.ai (OpenRouter)", baseUrl: FAL_LLM_BASE_URL, model: FAL_ONEKEY_MODELS.llm, visionModel: FAL_ONEKEY_MODELS.vision, tipKey: "presetFalTip" },
   // DeepSeek V4 Pro: flagship writing quality with clean JSON output (real-request verified
   // 2026-08; the v3.2 default before it leaked thinking text into JSON and broke generation)
-  { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o", tipKey: "presetOpenrouterTip" },
+  { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: FAL_ONEKEY_MODELS.llm, visionModel: FAL_ONEKEY_MODELS.vision, tipKey: "presetOpenrouterTip" },
   { label: "DeepSeek", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", tipKey: "presetDeepseekTip" },
   { label: "Kimi", baseUrl: "https://api.moonshot.cn/v1", model: "kimi-k2.5", tipKey: "presetKimiTip" },
   { label: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-5-turbo", tipKey: "presetGlmTip" },

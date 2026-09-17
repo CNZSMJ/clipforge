@@ -11,7 +11,7 @@ import { settings } from "@/lib/i18n/messages/settings";
 
 const KEY = "test-fal-secret:must-not-be-forwarded";
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-const catalogue = () => json({ data: [{ id: "google/gemini-2.5-flash" }, { id: "anthropic/example" }] });
+const catalogue = () => json({ data: [{ id: FAL_ONEKEY_MODELS.llm }, { id: "anthropic/example" }] });
 afterEach(() => vi.unstubAllGlobals());
 
 // Regression for the screenshot: chat works but GET {falBase}/models does not exist.
@@ -87,11 +87,11 @@ describe("Fal OpenRouter model discovery", () => {
   });
 
   it("public model hints do not claim Fal account access or change preset defaults", () => {
+    const defaultsBefore = { ...FAL_ONEKEY_MODELS };
     const hint = modelListHint([FAL_ONEKEY_MODELS.llm], "missing-model", FAL_LLM_BASE_URL)!;
     expect(hint.zh).toContain("公共模型目录");
     expect(hint.en).toContain("does not verify Fal account access");
-    expect(FAL_ONEKEY_MODELS.llm).toBe("google/gemini-2.5-flash");
-    expect(FAL_ONEKEY_MODELS.vision).toBe("google/gemini-2.5-flash");
+    expect(FAL_ONEKEY_MODELS).toEqual(defaultsBefore);
   });
 });
 

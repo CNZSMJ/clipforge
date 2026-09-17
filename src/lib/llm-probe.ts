@@ -18,6 +18,7 @@
  * the probe passes and carries a warning instead of a red cross.
  */
 
+import { qualityModelFetch } from "@/lib/llm-quality-policy";
 import { explainLLMStatus, isLegacyPollinations, isTokenCapRejection, type LLMMessagePair } from "@/lib/llm-error";
 import { llmAuthHeaders, listModels, modelListHint, normalizeChatBase } from "@/lib/llm-models";
 
@@ -52,7 +53,7 @@ async function probeCompletion(
   maxTokens: number | undefined,
   fetchImpl: typeof fetch,
 ): Promise<{ res: Response; text: string }> {
-  const res = await fetchImpl(`${base}/chat/completions`, {
+  const res = await qualityModelFetch(base, fetchImpl, true)(`${base}/chat/completions`, {
     method: "POST",
     headers: { ...llmAuthHeaders(base, apiKey), "Content-Type": "application/json" },
     body: JSON.stringify({

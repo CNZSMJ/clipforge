@@ -11,7 +11,7 @@ import {
   type ImageGenParams,
   type VideoGenParams,
 } from "@/lib/gen-params";
-import { FAL_BASE_URL, FAL_LLM_BASE_URL, FAL_ONEKEY_MODELS, FAL_TTS_MODEL, FAL_TTS_VOICE, fillFalModelDefaults } from "@/lib/fal-onekey";
+import { FAL_BASE_URL, FAL_LLM_BASE_URL, FAL_ONEKEY_MODELS, FAL_TTS_MODEL, FAL_TTS_VOICE, fillFalModelDefaults, upgradeFalQualityDefaults } from "@/lib/fal-onekey";
 import type { MotionIntensity, MotionRealismTier } from "@/lib/motion-prompt";
 import {
   isProductionProfileId,
@@ -134,7 +134,7 @@ const POLLINATIONS_BASE_URL = "https://gen.pollinations.ai/v1";
  * v3：Ollama 预设的 localhost 改成 127.0.0.1。Windows 上 localhost 会先解析到 ::1，而 Ollama 默认
  * 只监听 127.0.0.1，用户会看到一个无从排查的"连不上"（issue #19 追问）。同端口同机，改写无副作用。
  */
-export function migrateSettings(state: SettingsState): SettingsState {
+export function migrateSettings(state: SettingsState, fromVersion = 0): SettingsState {
   // v6: Atlas credentials are NOT fal credentials. Never forward them to the new vendor.
   const retired = (name: string) => /^(atlas|atlas-cloud|atlascloud)$/i.test(name);
   const atlasUrl = (value?: string) => {
@@ -162,6 +162,8 @@ export function migrateSettings(state: SettingsState): SettingsState {
   if (state.tts && (retired(state.tts.provider || "") || atlasUrl(state.tts.baseUrl))) {
     state.tts = { enabled: false, provider: "falai", baseUrl: FAL_BASE_URL, apiKey: "", model: FAL_TTS_MODEL, voice: FAL_TTS_VOICE, speed: state.tts.speed ?? 1 };
   }
+  // v7: migrate the old official Fal defaults once, retaining custom choices and keys.
+  if (fromVersion < 7 && state.llm) state.llm = upgradeFalQualityDefaults(state.llm);
   const llm = state?.llm;
   if (llm?.baseUrl) {
     const fixes: Array<{ hostRe: RegExp; from: string; to: string }> = [
@@ -303,8 +305,8 @@ export const useSettingsStore = create<SettingsState>()(
       // v3：Ollama 的 localhost:11434 改写成 127.0.0.1:11434（Windows 上 ::1 连不通）。
       // v4：补充面向创作目标的生产方案；旧设置迁移到兼顾质量与成本的 balanced。
       // v6: retire Atlas settings; require a real fal key instead of copying credentials.
-      version: 6,
-      migrate: (persisted) => migrateSettings(persisted as SettingsState),
+      version: 7,
+      migrate: (persisted, version) => migrateSettings(persisted as SettingsState, version),
     }
   )
 );

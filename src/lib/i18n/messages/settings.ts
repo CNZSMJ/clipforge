@@ -10,7 +10,7 @@ export const settings: NamespaceMessages = {
 
     // 新手一键接入 fal
     oneKeyTitle: "新手推荐 · 一个 Key 全搞定",
-    oneKeyDesc: "填 fal.ai 的 API Key，自动配好脚本 + 图 + 视频 + 配音（LLM 走 fal 的 OpenRouter 路由），无需在下面逐项设置。",
+    oneKeyDesc: "填 fal.ai API Key，默认使用 Claude Fable 5.1 写脚本、GPT-6 Astra 看图与质检，并配置图/视频/配音。质量优先，推理耗时与费用高于 Flash；不会自动发起收费测试。",
     oneKeyPlaceholder: "粘贴 fal.ai API Key",
     oneKeyCta: "一键接入",
     oneKeyDone: "已接入 fal.ai — 下方 LLM / 生图 / 生视频 / 配音 已自动配好，可直接开始出片",
@@ -46,7 +46,7 @@ export const settings: NamespaceMessages = {
     // LLM 配置
     llmProvider: "LLM Provider",
     llmPresetHint: "快捷预设（点击自动填入 baseUrl 和模型，还需填写 API Key）：",
-    presetFalTip: "一个 fal Key 同时给脚本/看图/生图/生视频/配音；可读取 OpenRouter 公共模型目录，选定后测试连接",
+    presetFalTip: "质量优先：Claude Fable 5.1 脚本 + GPT-6 Astra 视觉；同一个 Fal Key，费用高于 Flash。模型目录不代表账户权限。",
     presetOpenrouterTip: "一个 Key 聚合 400+ 模型，OpenAI 协议直连",
     presetDeepseekTip: "V4 Flash 推理+对话统一模型",
     presetKimiTip: "K2.5 支持 Agent Swarm",
@@ -211,7 +211,7 @@ export const settings: NamespaceMessages = {
 
     // One-key fal setup for newcomers
     oneKeyTitle: "Recommended · One key does it all",
-    oneKeyDesc: "Paste your fal.ai API key and we'll wire up scripts + images + video + voiceover automatically (the LLM rides the fal OpenRouter route) — no need to configure each section below.",
+    oneKeyDesc: "Use one fal.ai key for Claude Fable 5.1 scripts, GPT-6 Astra vision/QC, images, video and narration. Quality first: higher latency and cost than Flash. No automatic paid test.",
     oneKeyPlaceholder: "Paste your fal.ai API key",
     oneKeyCta: "Connect",
     oneKeyDone: "fal.ai connected — LLM / image / video / voiceover below are all set up. You're ready to create.",
@@ -247,7 +247,7 @@ export const settings: NamespaceMessages = {
     // LLM config
     llmProvider: "LLM provider",
     llmPresetHint: "Quick presets (click to auto-fill baseUrl and model — you still need an API key):",
-    presetFalTip: "One fal key covers script, vision, image, video and voiceover; browse the public OpenRouter catalogue, then test the selected model",
+    presetFalTip: "Quality first: Claude Fable 5.1 scripts + GPT-6 Astra vision with one Fal key; costs more than Flash. Catalogue visibility is not account authorization.",
     presetOpenrouterTip: "One key for 400+ models, direct OpenAI-compatible access",
     presetDeepseekTip: "V4 Flash unified reasoning + chat model",
     presetKimiTip: "K2.5 with Agent Swarm support",

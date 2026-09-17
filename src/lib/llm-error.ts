@@ -1,3 +1,4 @@
+import { isOpenRouterChatBase, qualityModelFetch } from "@/lib/llm-quality-policy";
 import { llmAuthHeaders } from "@/lib/llm-models";
 /**
  * LLM client factory + failure messages for OpenAI-compatible endpoints.
@@ -156,7 +157,7 @@ export function tokenCapRetryFetch(
  * forbids top-level arrays), and the prompt must mention "JSON" (all of ours do).
  */
 export function jsonModeParams(baseUrl?: string): { response_format?: { type: "json_object" } } {
-  return /deepseek|openai\.com|moonshot|bigmodel\.cn|siliconflow|dashscope/i.test(baseUrl || "")
+  return isOpenRouterChatBase(baseUrl) || /deepseek|openai\.com|moonshot|bigmodel\.cn|siliconflow|dashscope/i.test(baseUrl || "")
     ? { response_format: { type: "json_object" } }
     : {};
 }
@@ -218,7 +219,7 @@ export function createLLMClient(config: LLMClientConfig): OpenAI {
     maxRetries: 3,
     // Cap recovery and optional-param recovery apply everywhere (our params, our problem); the
     // 402 hook only where 402 is genuinely transient. Composed so one wrapper feeds the other.
-    fetch: optionalParamRetryFetch(tokenCapRetryFetch(retryFreePool402 ? freePoolRetryFetch() : fetch)),
+    fetch: qualityModelFetch(config.baseUrl, optionalParamRetryFetch(tokenCapRetryFetch(retryFreePool402 ? freePoolRetryFetch() : fetch))),
   });
 }
 

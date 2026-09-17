@@ -1,3 +1,5 @@
+import { isFalOpenRouter } from "@/lib/llm-models";
+
 /**
  * fal.ai "one key covers everything" preset for quick onboarding.
  *
@@ -26,13 +28,10 @@ export const FAL_TTS_VOICE = "Wise_Woman";
 export const FAL_KEYS_URL = "https://fal.ai/dashboard/keys";
 
 export const FAL_ONEKEY_MODELS = {
-  /**
-   * Script (LLM): fast multimodal model with clean JSON output. Swap for
-   * `anthropic/claude-sonnet-4` when script quality matters more than cost.
-   */
-  llm: "google/gemini-2.5-flash",
-  /** Product-image analysis (Vision) — same multimodal model. */
-  vision: "google/gemini-2.5-flash",
+  /** Quality-first script model. Selection evidence: docs/llm-vision-model-selection.md. */
+  llm: "anthropic/claude-fable-5.1",
+  /** Product/frame understanding and reference-aware visual quality checks (not generation). */
+  vision: "openai/gpt-6-astra",
   /**
    * Image generation: GPT Image 2.5 Sunburst Edit — the product-photo path feeds references, and
    * the /edit routes are the ones that accept image_urls. Swap to `.../sunburst/text-to-image`
@@ -54,5 +53,18 @@ export function fillFalModelDefaults(current: { image?: string; video?: string }
   return {
     image: current.image?.trim() ? current.image : FAL_ONEKEY_MODELS.image,
     video: current.video?.trim() ? current.video : FAL_ONEKEY_MODELS.video,
+  };
+}
+
+/** Upgrade only the retired default on the official Fal chat gateway; keep custom choices. */
+export function upgradeFalQualityDefaults<T extends { baseUrl: string; model: string; visionModel?: string }>(current: T): T {
+  if (!isFalOpenRouter(current.baseUrl)) return current;
+  const legacy = "google/gemini-2.5-flash";
+  const oldText = current.model === legacy;
+  const oldVision = current.visionModel === legacy || (oldText && !current.visionModel?.trim());
+  if (!oldText && !oldVision) return current;
+  return { ...current,
+    ...(oldText && { model: FAL_ONEKEY_MODELS.llm }),
+    ...(oldVision && { visionModel: FAL_ONEKEY_MODELS.vision }),
   };
 }

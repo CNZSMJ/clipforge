@@ -614,7 +614,7 @@ export default function SettingsPage() {
                       {LLM_PRESETS.map((preset) => (
                         <button
                           key={preset.label}
-                          onClick={() => setLLM({ ...llm, baseUrl: preset.baseUrl, model: preset.model, visionModel: preset.model, ...(preset.apiKey ? { apiKey: preset.apiKey } : {}) })}
+                          onClick={() => setLLM({ ...llm, baseUrl: preset.baseUrl, model: preset.model, visionModel: preset.visionModel ?? preset.model, ...(preset.apiKey ? { apiKey: preset.apiKey } : {}) })}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs border border-border/50 bg-background hover:border-primary/40 hover:text-primary transition-colors"
                         >
                           {preset.label}
