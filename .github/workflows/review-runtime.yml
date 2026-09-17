@@ -1,0 +1,28 @@
+name: Migration review runtime
+on:
+  push:
+    branches: [feat/fal-migration]
+    paths: [.github/workflows/review-runtime.yml]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Package locked test dependencies (no credentials or user data)
+        run: tar --exclude='node_modules/.pnpm/onnxruntime-*' --exclude='node_modules/.pnpm/@next+swc-*' --exclude='node_modules/.pnpm/ffmpeg-static*/node_modules/ffmpeg-static/ffmpeg' --exclude='node_modules/.pnpm/app-builder-bin*' --exclude='node_modules/.pnpm/@img+sharp-libvips-*' -czf review-runtime.tar.gz node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: migration-review-runtime
+          path: review-runtime.tar.gz
+          retention-days: 1
