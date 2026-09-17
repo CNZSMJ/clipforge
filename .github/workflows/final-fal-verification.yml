@@ -1,0 +1,82 @@
+name: Final Fal migration verification
+on:
+  push:
+    branches: [feat/fal-migration]
+    paths: [.github/apply-final-review.py, .github/workflows/final-fal-verification.yml]
+permissions:
+  contents: read
+concurrency:
+  group: final-fal-review-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'CNZSMJ/clipforge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    outputs:
+      tree: ${{ steps.tree.outputs.tree }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Apply only the reviewed final changes
+        run: python3 .github/apply-final-review.py
+      - name: Record the exact candidate tree
+        id: tree
+        run: |
+          git add -A
+          echo "tree=$(git write-tree)" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install capable system media tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+      - name: Lint
+        run: pnpm lint
+      - name: All regression tests
+        run: pnpm exec vitest run --reporter=default --reporter=json --outputFile=/tmp/fal-final-test-results.json
+      - name: Production build
+        run: pnpm build
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fal-final-verification
+          path: /tmp/fal-final-test-results.json
+          retention-days: 7
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Publish exactly the verified tree, never overwrite a concurrent commit
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+          VERIFIED_TREE: ${{ needs.verify.outputs.tree }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(git ls-remote origin refs/heads/feat/fal-migration | cut -f1)
+          test "$CURRENT" = "$EXPECTED_HEAD" || { echo 'Branch advanced; reconcile rather than overwrite'; exit 1; }
+          python3 .github/apply-final-review.py
+          git add -A
+          test "$(git write-tree)" = "$VERIFIED_TREE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(fal): finalize paid-stage recovery and verified media runtime' -m "Typecheck, full regression suite and production build passed for exact tree $VERIFIED_TREE. Preserve concurrent OpenRouter model discovery. Remove temporary review workflows. No live inference was executed."
+          git push origin HEAD:refs/heads/feat/fal-migration
+          echo "Published commit: $(git rev-parse HEAD)"
