@@ -98,8 +98,10 @@ describe("single source of truth", () => {
   });
 
   it("every i18n namespace that names a category uses the canonical Chinese label", async () => {
-    const { CATEGORY_LABELS, PRODUCT_CATEGORIES } = await import("@/lib/product-category");
-    const namespaces: Record<string, { zh?: Record<string, string> }> = {
+    const { CATEGORY_LABELS, CATEGORY_LABELS_EN, PRODUCT_CATEGORIES } = await import(
+      "@/lib/product-category"
+    );
+    const namespaces: Record<string, { zh?: Record<string, string>; en?: Record<string, string> }> = {
       newProject: (await import("@/lib/i18n/messages/newProject")).newProject,
       batch: (await import("@/lib/i18n/messages/batch")).batch,
       products: (await import("@/lib/i18n/messages/products")).products,
@@ -113,9 +115,10 @@ describe("single source of truth", () => {
     };
     for (const [name, ns] of Object.entries(namespaces)) {
       for (const category of PRODUCT_CATEGORIES) {
-        const label = ns.zh?.[keys[category]];
-        if (label === undefined) continue; // that namespace simply does not offer this option
-        expect(label, name + "." + keys[category]).toBe(CATEGORY_LABELS[category]);
+        const key = keys[category];
+        // both languages, and every namespace must actually offer the option
+        expect(ns.zh?.[key], name + ".zh." + key).toBe(CATEGORY_LABELS[category]);
+        expect(ns.en?.[key], name + ".en." + key).toBe(CATEGORY_LABELS_EN[category]);
       }
     }
   });

@@ -105,8 +105,8 @@ export const batch: NamespaceMessages = {
     styleTalkingHead: "Talking head",
     styleAuto: "Smart pick",
     // 品类标签
-    categoryHome: "Home goods",
-    categoryTech: "Tech & gadgets",
+    categoryHome: "Home & living",
+    categoryTech: "Electronics & 3C",
     categoryBeauty: "Beauty & skincare",
     categoryFood: "Food & snacks",
     categoryFashion: "Fashion & bags",

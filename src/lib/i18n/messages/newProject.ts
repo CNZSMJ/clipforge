@@ -8,6 +8,7 @@ export const newProject: NamespaceMessages = {
     categoryFood: "食品零食",
     categoryHome: "家居日用",
     categoryFashion: "服饰鞋包",
+    categoryTech: "数码3C",
     categoryDigital: "数码3C",
     categoryOther: "其他",
     // 脚本风格选项
@@ -205,6 +206,7 @@ export const newProject: NamespaceMessages = {
     categoryFood: "Food & snacks",
     categoryHome: "Home & living",
     categoryFashion: "Fashion & bags",
+    categoryTech: "Electronics & 3C",
     categoryDigital: "Electronics & 3C",
     categoryOther: "Other",
     // 脚本风格选项

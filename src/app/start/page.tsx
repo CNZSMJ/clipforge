@@ -11,6 +11,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSettingsStore } from "@/lib/stores/settings-store";
+import { PRODUCT_CATEGORY_OPTIONS, type ProductCategory } from "@/lib/product-category";
 import { ProductionProfilePicker } from "@/components/production-profile-picker";
 import { useProductLibraryStore } from "@/lib/stores/product-library-store";
 import { useCharacterStore } from "@/lib/stores/project-store";
@@ -117,6 +118,9 @@ export default function StartPage() {
   const [images, setImages] = useState<PickedImage[]>([]);
   const [productName, setProductName] = useState("");
   const [sellingPoints, setSellingPoints] = useState("");
+  // "" = auto-detect. An explicit pick is the stored category, which the script route prefers over
+  // the vision analysis and the keyword fallback (single chain lives in @/lib/product-category).
+  const [category, setCategory] = useState<ProductCategory | "">("");
   const [topic, setTopic] = useState("");
   const [link, setLink] = useState("");
   const [isDragging, setIsDragging] = useState(false);
@@ -414,7 +418,14 @@ export default function StartPage() {
     const projectRes = await fetch("/api/project", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: t("projectName", { name: productName }), productName, productDescription: sellingPoints, productImages: [] }),
+      body: JSON.stringify({
+        name: t("projectName", { name: productName }),
+        productName,
+        productDescription: sellingPoints,
+        productImages: [],
+        // omitted for auto-detect, so the DB keeps NULL (one representation for unknown)
+        ...(category && { productCategory: category }),
+      }),
     });
     if (!projectRes.ok) {
       const errData = await projectRes.json().catch(() => ({}));
@@ -451,7 +462,7 @@ export default function StartPage() {
       body: JSON.stringify({
         projectId: project.id,
         productName,
-        category: "other",
+        ...(category && { category }),
         productDescription: sellingPoints,
         targetDuration: 30,
         styleType: creationPreset().styleType,
@@ -489,7 +500,7 @@ export default function StartPage() {
       body: JSON.stringify({
         projectId: data.projectId,
         productName: p.title || t("linkProductFallback"),
-        category: "other",
+        ...(category && { category }),
         productDescription: p.description || "",
         targetDuration: 30,
         styleType: creationPreset().styleType,
@@ -809,6 +820,25 @@ export default function StartPage() {
               </div>
             )}
 
+            {/* product category: drives the category template, hook mechanisms and the visual-evidence
+                block. Auto-detect is the default; the pick travels with the project so a re-run keeps it. */}
+            {mode !== "topic" && (
+              <div className="cf-formrow">
+                <span className="cf-form-lbl">{t("categoryLabel")}</span>
+                <select
+                  className="cf-form-select"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as ProductCategory | "")}
+                >
+                  <option value="">{t("categoryAuto")}</option>
+                  {PRODUCT_CATEGORY_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {locale === "zh" ? o.label : o.labelEn}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {/* generation-task mode: the free/paid fork every mature product makes explicit —
                 cost and key requirements live ON the option, never behind it */}
             <div className="cf-genrow">

@@ -26,6 +26,8 @@ export const start: NamespaceMessages = {
     dropSub: "JPG / PNG，最多 5 张 · 没素材？下面点个示例",
     imgAlt: "商品图",
     removeAria: "删除",
+    categoryLabel: "商品品类",
+    categoryAuto: "自动识别（推荐）",
     productNamePlaceholder: "商品名称（必填，如：便携榨汁杯）",
     sellingPointsPlaceholder: "核心卖点（选填）——填了脚本更精准",
     // 一句话模式
@@ -186,6 +188,8 @@ export const start: NamespaceMessages = {
     dropSub: "JPG / PNG, up to 5 · No assets? Pick an example below",
     imgAlt: "Product photo",
     removeAria: "Remove",
+    categoryLabel: "Product category",
+    categoryAuto: "Auto-detect (recommended)",
     productNamePlaceholder: "Product name (required, e.g. Portable juicer cup)",
     sellingPointsPlaceholder: "Key selling points (optional) — sharper script if filled",
     // 一句话模式

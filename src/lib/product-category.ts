@@ -29,12 +29,15 @@ export const CATEGORY_LABELS: Record<ProductCategory, string> = {
   tech: "数码3C",
 };
 
-/** English labels for logs and docs. User-facing English lives in i18n and must agree (test-guarded). */
+/**
+ * Canonical English labels. The i18n namespaces must print exactly these (test-guarded), so there
+ * is one wording per category in each language instead of the three variants that had drifted.
+ */
 export const CATEGORY_LABELS_EN: Record<ProductCategory, string> = {
-  beauty: "Beauty & Skincare",
-  food: "Food & Snacks",
-  home: "Home & Living",
-  fashion: "Fashion & Accessories",
+  beauty: "Beauty & skincare",
+  food: "Food & snacks",
+  home: "Home & living",
+  fashion: "Fashion & bags",
   tech: "Electronics & 3C",
 };
 
@@ -42,9 +45,16 @@ export function isProductCategory(value: unknown): value is ProductCategory {
   return typeof value === "string" && (PRODUCT_CATEGORIES as readonly string[]).includes(value);
 }
 
-/** Options for a UI select (one entry per canonical key). */
-export const PRODUCT_CATEGORY_OPTIONS: ReadonlyArray<{ value: ProductCategory; label: string }> =
-  PRODUCT_CATEGORIES.map((value) => ({ value, label: CATEGORY_LABELS[value] }));
+/** Options for a UI select, both languages, derived from the two label tables above. */
+export const PRODUCT_CATEGORY_OPTIONS: ReadonlyArray<{
+  value: ProductCategory;
+  label: string;
+  labelEn: string;
+}> = PRODUCT_CATEGORIES.map((value) => ({
+  value,
+  label: CATEGORY_LABELS[value],
+  labelEn: CATEGORY_LABELS_EN[value],
+}));
 
 /** The \"美妆护肤/食品零食/…\" string used by the analysis prompt — built from the labels above. */
 export function categoryOptionsText(): string {
