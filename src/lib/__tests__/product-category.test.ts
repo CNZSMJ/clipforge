@@ -122,4 +122,23 @@ describe("single source of truth", () => {
       }
     }
   });
+
+  it("also accepts the English label and a bare enum key", () => {
+    // the model is asked in prose, so it may answer in either language or with the bare key
+    expect(categoryFromAnalysis("- 所属品类：Food & snacks")).toBe("food");
+    expect(categoryFromAnalysis("- 所属品类：Beauty & skincare")).toBe("beauty");
+    expect(categoryFromAnalysis("- 所属品类：food")).toBe("food");
+    expect(categoryFromAnalysis("- 所属品类：FOOD.")).toBe("food");
+    expect(categoryFromAnalysis("- 所属品类：Electronics & 3C")).toBe("tech");
+  });
+
+  it("still returns null for an out-of-enum answer (safe, not a wrong category)", () => {
+    // 饮料 / 保健食品 / 母婴用品 are not categories the engine can render a template for;
+    // the caller falls through to keywords rather than getting a wrong template.
+    expect(categoryFromAnalysis("- 所属品类：饮料")).toBeNull();
+    expect(categoryFromAnalysis("- 所属品类：保健食品")).toBeNull();
+    expect(categoryFromAnalysis("- 所属品类：母婴用品")).toBeNull();
+    // an English sentence that merely mentions home is not an answer
+    expect(categoryFromAnalysis("- 所属品类：suitable for the home")).toBeNull();
+  });
 });
