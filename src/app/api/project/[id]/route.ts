@@ -6,6 +6,7 @@ import { projects } from "@/lib/db/schema";
 import { getUploadsDir, getOutputDir } from "@/lib/paths";
 import { eq } from "drizzle-orm";
 import { apiError, errText } from "@/lib/api-error";
+import { storedCategoryKey } from "@/lib/product-category";
 
 // Project ids are UUIDs; validate before using one in a filesystem path (guards the rm below against traversal)
 const SAFE_ID = /^[a-zA-Z0-9-]+$/;
@@ -80,6 +81,12 @@ export async function PATCH(
       if (field in body) {
         updates[field] = body[field];
       }
+    }
+
+    // Same rule as project creation: an unknown category is stored as NULL, never as a literal
+    // like "other" — one representation for unknown, and the category parsers live in one module.
+    if ("productCategory" in updates) {
+      updates.productCategory = storedCategoryKey(updates.productCategory);
     }
 
     // Validate that the status value is a legal enum member

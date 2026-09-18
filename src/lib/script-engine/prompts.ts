@@ -4,6 +4,7 @@
  */
 
 import { categoryNameMap, type ProductCategory } from "./templates";
+import { categoryOptionsText, resolveProductCategory } from "@/lib/product-category";
 import { buildHookGuidance } from "./hook-patterns";
 import { COMMERCE_DIRECTION, TOPIC_DIRECTION, TOPIC_HOOK_DIRECTION, buildStoryboardDirection, buildCategoryVisualDirection, buildPlatformDirection } from "./storyboard-direction";
 import { cameraPresetGuide } from "@/lib/camera-presets";
@@ -282,7 +283,7 @@ export const PRODUCT_ANALYSIS_PROMPT = `你是一位专业的电商选品分析�
 
 1. 【商品识别】
    - 商品名称/类型
-   - 所属品类（美妆护肤/食品零食/家居日用/服饰鞋包/数码3C）
+   - 所属品类（${categoryOptionsText()}）
    - 品牌（如果可见）
 
 2. 【视觉特征】
@@ -711,7 +712,13 @@ export function buildScriptPrompt(params: {
   duration: number;
   templateHint?: string;
 }): string {
-  const category = mapOldCategory(params.productCategory);
+  // one resolution chain for the whole codebase - no local "unknown -> beauty" mapper
+  const category = resolveProductCategory({
+    stored: params.productCategory,
+    productName: params.productName,
+    productDescription: params.productDescription,
+    analysis: params.productAnalysis,
+  }).category;
 
   return buildBatchPrompt({
     productName: params.productName,
@@ -724,15 +731,3 @@ export function buildScriptPrompt(params: {
   });
 }
 
-/** Maps legacy category names to new category keys */
-function mapOldCategory(category?: string): ProductCategory {
-  if (!category) return "beauty";
-  const map: Record<string, ProductCategory> = {
-    "美妆护肤": "beauty",
-    "食品零食": "food",
-    "家居日用": "home",
-    "服饰鞋包": "fashion",
-    "数码3C": "tech",
-  };
-  return map[category] || "beauty";
-}

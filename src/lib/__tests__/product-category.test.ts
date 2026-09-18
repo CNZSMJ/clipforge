@@ -5,7 +5,7 @@ import {
   categoryFromText,
   resolveProductCategory,
   storedCategoryKey,
-} from "@/lib/script-engine/category";
+} from "@/lib/product-category";
 
 describe("product category resolution", () => {
   it("treats the uploaded-photo placeholder as unknown instead of beauty", () => {
@@ -80,5 +80,43 @@ describe("product category resolution", () => {
       category: "beauty",
       source: "fallback",
     });
+  });
+});
+
+describe("single source of truth", () => {
+  it("templates/index.ts re-exports the ONE label table instead of copying it", async () => {
+    const { categoryNameMap } = await import("@/lib/script-engine/templates");
+    const { CATEGORY_LABELS } = await import("@/lib/product-category");
+    // identity, not equality: a copy is how the first two tables drifted apart
+    expect(categoryNameMap).toBe(CATEGORY_LABELS);
+  });
+
+  it("the analysis prompt prints the canonical option list", async () => {
+    const { PRODUCT_ANALYSIS_PROMPT } = await import("@/lib/script-engine/prompts");
+    const { categoryOptionsText } = await import("@/lib/product-category");
+    expect(PRODUCT_ANALYSIS_PROMPT).toContain(categoryOptionsText());
+  });
+
+  it("every i18n namespace that names a category uses the canonical Chinese label", async () => {
+    const { CATEGORY_LABELS, PRODUCT_CATEGORIES } = await import("@/lib/product-category");
+    const namespaces: Record<string, { zh?: Record<string, string> }> = {
+      newProject: (await import("@/lib/i18n/messages/newProject")).newProject,
+      batch: (await import("@/lib/i18n/messages/batch")).batch,
+      products: (await import("@/lib/i18n/messages/products")).products,
+    };
+    const keys: Record<string, string> = {
+      beauty: "categoryBeauty",
+      food: "categoryFood",
+      home: "categoryHome",
+      fashion: "categoryFashion",
+      tech: "categoryTech",
+    };
+    for (const [name, ns] of Object.entries(namespaces)) {
+      for (const category of PRODUCT_CATEGORIES) {
+        const label = ns.zh?.[keys[category]];
+        if (label === undefined) continue; // that namespace simply does not offer this option
+        expect(label, name + "." + keys[category]).toBe(CATEGORY_LABELS[category]);
+      }
+    }
   });
 });

@@ -5,7 +5,7 @@ import { join } from "path";
 import { generateScript, analyzeProduct } from "@/lib/script-engine/generator";
 import { styleNameMap, type ScriptStyleType } from "@/lib/script-engine/prompts";
 import { hookPatternName, HOOK_PATTERNS } from "@/lib/script-engine/hook-patterns";
-import { resolveProductCategory } from "@/lib/script-engine/category";
+import { resolveProductCategory } from "@/lib/product-category";
 import { getDb } from "@/lib/db";
 import { scripts as scriptsTable, projects, publishMetrics } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";

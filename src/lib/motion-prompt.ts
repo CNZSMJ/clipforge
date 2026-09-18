@@ -22,6 +22,7 @@ import { REAL_FACE_CONSTRAINT } from "@/lib/presenters";
 import { emotionActingLine, shotEmotion } from "@/lib/emotion-acting";
 import { renderModeDirection } from "@/lib/storyboard-render-direction";
 import type { ProductCategory } from "@/lib/script-engine/templates";
+import { isProductCategory } from "@/lib/product-category";
 
 /** Camera-movement amplitude tier (Kling-style enumerated intensity instead of free text). */
 export type MotionIntensity = "subtle" | "normal" | "strong";
@@ -256,9 +257,8 @@ function pickFrom<T>(pool: T[], seed: number): T {
 }
 
 /** Normalize the free-form DB category string to a known category (undefined otherwise). */
-function normalizeCategory(category: string | undefined): ProductCategory | undefined {
-  return category && category in CATEGORY_CONSTRAINTS ? (category as ProductCategory) : undefined;
-}
+const normalizeCategory = (category: string | undefined): ProductCategory | undefined =>
+  isProductCategory(category) ? category : undefined;
 
 /** Universal stability/artifact tail — cheap, consistent win against flicker and morphing. */
 const QUALITY_TAIL = {

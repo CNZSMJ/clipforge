@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { storedCategoryKey } from "@/lib/product-category";
 import { projects } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
 
@@ -34,7 +35,8 @@ export async function POST(req: NextRequest) {
       .values({
         name: body.name || "未命名项目",
         productName: body.productName,
-        productCategory: body.productCategory,
+        // unknown is stored as NULL: "other" is not a category and must not enter the DB
+        productCategory: storedCategoryKey(body.productCategory),
         productDescription: body.productDescription,
         productImages: body.productImages || [],
         ...(videoMode && { videoMode }),

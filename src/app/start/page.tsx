@@ -414,7 +414,7 @@ export default function StartPage() {
     const projectRes = await fetch("/api/project", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: t("projectName", { name: productName }), productName, productCategory: "other", productDescription: sellingPoints, productImages: [] }),
+      body: JSON.stringify({ name: t("projectName", { name: productName }), productName, productDescription: sellingPoints, productImages: [] }),
     });
     if (!projectRes.ok) {
       const errData = await projectRes.json().catch(() => ({}));

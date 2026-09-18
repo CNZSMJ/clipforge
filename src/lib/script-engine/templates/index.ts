@@ -16,17 +16,13 @@ export { techTemplates, techPromptDirective } from "./tech";
 
 export type { ScriptTemplate } from "./beauty";
 
-/** Product category type */
-export type ProductCategory = "beauty" | "food" | "home" | "fashion" | "tech";
-
-/** Map of category keys to display names */
-export const categoryNameMap: Record<ProductCategory, string> = {
-  beauty: "美妆护肤",
-  food: "食品零食",
-  home: "家居日用",
-  fashion: "服饰鞋包",
-  tech: "数码3C",
-};
+/**
+ * The category union and its labels live in @/lib/product-category (single source of truth).
+ * Re-exported here so existing importers keep working and no second table can drift.
+ */
+import { CATEGORY_LABELS, type ProductCategory } from "@/lib/product-category";
+export type { ProductCategory };
+export const categoryNameMap = CATEGORY_LABELS;
 
 /** Lookup table mapping each category to its templates and prompt directive */
 const categoryMap = {
