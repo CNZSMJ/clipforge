@@ -5,7 +5,7 @@ import { join } from "path";
 import { generateScript, analyzeProduct } from "@/lib/script-engine/generator";
 import { styleNameMap, type ScriptStyleType } from "@/lib/script-engine/prompts";
 import { hookPatternName, HOOK_PATTERNS } from "@/lib/script-engine/hook-patterns";
-import type { ProductCategory } from "@/lib/script-engine/templates";
+import { resolveProductCategory } from "@/lib/script-engine/category";
 import { getDb } from "@/lib/db";
 import { scripts as scriptsTable, projects, publishMetrics } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -52,21 +52,6 @@ async function imagePathToBase64(imagePath: string): Promise<string> {
     console.warn(`无法读取图片文件: ${filePath}`);
     return imagePath;
   }
-}
-
-/** Normalize a frontend category value to a ProductCategory supported by the engine */
-function normalizeCategory(raw: unknown): ProductCategory {
-  const map: Record<string, ProductCategory> = {
-    beauty: "beauty",
-    food: "food",
-    home: "home",
-    fashion: "fashion",
-    tech: "tech",
-    digital: "tech", // frontend uses "digital" for the "Electronics/3C" category
-    "3c": "tech",
-    other: "beauty", // fallback for uncategorized items
-  };
-  return map[String(raw ?? "").toLowerCase()] ?? "beauty";
 }
 
 /** Normalize a frontend script style value to a ScriptStyleType supported by the engine */
@@ -139,8 +124,8 @@ export async function POST(req: NextRequest) {
     llmConfig,
   } = body;
 
-  // Support both frontend field naming conventions: category/productCategory, targetDuration/duration
-  const category = normalizeCategory(body.category ?? body.productCategory);
+  // The category is resolved AFTER the vision analysis below: a project created from an uploaded
+  // photo stores "other", and mapping that to beauty here is what put 美妆护肤 on a tea product.
   // detect smart-recommend ("auto"/unset) BEFORE normalizing, so the flywheel can pick a data-driven
   // default instead of the hardcoded pain_point fallback; an explicit style is always respected
   const rawStyle = String(body.styleType ?? "").toLowerCase();
@@ -180,6 +165,21 @@ export async function POST(req: NextRequest) {
         // Image analysis failure should not block script generation
         console.warn("商品图片分析失败（已跳过）:", e);
       }
+    }
+
+    // Resolve the category: stored value -> the 所属品类 line the vision analysis already produced
+    // -> keywords from the product text. Empty/"other" is inferred rather than silently becoming beauty.
+    const resolved = resolveProductCategory({
+      stored: body.category ?? body.productCategory ?? project?.productCategory,
+      productName,
+      productDescription,
+      analysis,
+    });
+    const category = resolved.category;
+    if (resolved.source === "fallback") {
+      console.warn("商品品类无法识别，回退到 beauty:", productName);
+    } else if (resolved.source !== "stored") {
+      console.info(`商品品类自动识别为 ${category}（来源：${resolved.source}）`);
     }
 
     // Data flywheel (read side): pull the creator's real conversion feedback for this category.
@@ -254,7 +254,13 @@ export async function POST(req: NextRequest) {
         // Sync project status and analysis result
         await db
           .update(projects)
-          .set({ status: "scripting", ...(analysis && { productAnalysis: analysis }), updatedAt: new Date() })
+          .set({
+            status: "scripting",
+            ...(analysis && { productAnalysis: analysis }),
+            // keep the project in sync so the UI and later runs show the category actually used
+            ...(resolved.source !== "stored" && { productCategory: category }),
+            updatedAt: new Date(),
+          })
           .where(eq(projects.id, projectId));
       } catch (e) {
         // DB write failure must surface as an error — returning 200 would let the frontend navigate away thinking it succeeded, then read empty scripts from the DB (which may already have had their old scripts deleted)
