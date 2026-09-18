@@ -142,6 +142,9 @@ export const script: NamespaceMessages = {
     saveTemplateTitle: "保存为模板",
     saveTemplateDesc: "保存当前脚本结构为模板，下次可直接套用到其他商品",
     templateNamePlaceholder: "模板名称，如：痛点种草-美妆通用",
+    // C：自动识别没识别出商品品类，明确告诉用户而不是套用一个默认品类
+    categoryUnknownTitle: "未能识别商品品类，已按通用方式生成",
+    categoryUnknownHint: "本次没有套用任何品类的固定套路，脚本可能偏保守。到商品信息里手动选一个品类后重新生成，会更贴合。",
   },
   en: {
     // 镜头类型标签
@@ -283,5 +286,8 @@ export const script: NamespaceMessages = {
     saveTemplateTitle: "Save as template",
     saveTemplateDesc: "Save this script structure as a template to reuse on other products",
     templateNamePlaceholder: "Template name, e.g. Pain-point pitch - Beauty",
+    // C: auto-detection found no category; say so rather than applying a default
+    categoryUnknownTitle: "Product category not recognised — generated without one",
+    categoryUnknownHint: "No category template was applied, so the script may read more generic. Pick a category in the product info and regenerate for a closer fit.",
   },
 };

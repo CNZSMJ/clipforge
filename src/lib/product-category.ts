@@ -96,12 +96,34 @@ const KEY_TOKENS: ReadonlyArray<[string, ProductCategory]> = PRODUCT_CATEGORIES.
 ]);
 
 /**
- * Read the 所属品类 answer out of the vision analysis.
- * Line-scoped and colon-scoped on purpose: the prompt prints the option list before the colon, so
- * matching the whole line would return 美妆护肤 for every model that echoes the choices back.
+ * Read the machine-readable answer: the analysis prompt asks for a JSON object with a "category"
+ * field, so a JSON-mode reply carries the category as data rather than prose.
+ */
+export function categoryFromAnalysisJson(analysis?: string): ProductCategory | null {
+  if (!analysis) return null;
+  // The analysis prompt asks for a JSON object with a "category" field, so a JSON-mode
+  // reply carries the category as data instead of prose. Only an exact answer counts:
+  // the echoed placeholder ("beauty|food|home|fashion|tech") and any out-of-enum word
+  // return null, letting the caller fall through to the line parser below.
+  const match = analysis.match(/["']category["']\s*[:：]\s*["']([^"']*)["']/i);
+  if (!match) return null;
+  const answer = match[1].trim().toLowerCase();
+  if (isProductCategory(answer)) return answer;
+  return LABEL_TOKENS.find(([token]) => token === answer)?.[1] ?? null;
+}
+
+/**
+ * Read the 所属品类 answer out of the vision analysis, from either shape the model may return.
+ * The line-scoped, colon-scoped scan is deliberately narrow: the prompt prints the option list
+ * before the colon, so matching the whole line would return 美妆护肤 for every model that echoes
+ * the choices back.
  */
 export function categoryFromAnalysis(analysis?: string): ProductCategory | null {
   if (!analysis) return null;
+  // 1) the machine-readable answer: {"category": "food", ...}
+  const structured = categoryFromAnalysisJson(analysis);
+  if (structured) return structured;
+  // 2) the human-readable answer: a 所属品类 line (free-text models, older replies)
   for (const line of analysis.split(/\r?\n/)) {
     if (!/(所属)?品类/.test(line)) continue;
     const raw = (line.split(/[:：]/).pop() ?? "").trim();
@@ -137,16 +159,21 @@ export function categoryFromText(...parts: Array<string | undefined>): ProductCa
   return null;
 }
 
-export type CategorySource = "stored" | "analysis" | "keywords" | "fallback";
+export type CategorySource = "stored" | "analysis" | "keywords" | "unknown";
 
 export interface ResolvedCategory {
-  category: ProductCategory;
+  /** The category the engine should use, or null when nothing identified one. */
+  category: ProductCategory | null;
   source: CategorySource;
 }
 
 /**
- * The one resolution chain: stored value -> the 所属品类 line the vision analysis already produced ->
- * product-text keywords -> explicit fallback (reported to the caller, never silent).
+ * The one resolution chain: stored value -> the category the vision analysis produced ->
+ * product-text keywords -> an explicit unknown (null), reported to the caller.
+ *
+ * There is deliberately no default category. Falling back to 美妆护肤 was how a tea product got
+ * scripted with the beauty template; a wrong template is worse than no template, so an
+ * unidentifiable product gets no category block at all and the caller can ask the user to pick.
  */
 export function resolveProductCategory(input: {
   stored?: unknown;
@@ -163,5 +190,5 @@ export function resolveProductCategory(input: {
   const fromText = categoryFromText(input.productName, input.productDescription, input.analysis);
   if (fromText) return { category: fromText, source: "keywords" };
 
-  return { category: "beauty", source: "fallback" };
+  return { category: null, source: "unknown" };
 }

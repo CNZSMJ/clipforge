@@ -167,8 +167,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Resolve the category: stored value -> the 所属品类 line the vision analysis already produced
-    // -> keywords from the product text. Empty/"other" is inferred rather than silently becoming beauty.
+    // Resolve the category: stored value -> the category the vision analysis produced (JSON field
+    // or 所属品类 line) -> keywords from the product text. "other"/empty is inferred; when nothing
+    // identifies the product the answer is null, which the prompt builder renders as a neutral
+    // 未识别 block instead of a default category.
     const resolved = resolveProductCategory({
       stored: body.category ?? body.productCategory ?? project?.productCategory,
       productName,
@@ -176,8 +178,8 @@ export async function POST(req: NextRequest) {
       analysis,
     });
     const category = resolved.category;
-    if (resolved.source === "fallback") {
-      console.warn("商品品类无法识别，回退到 beauty:", productName);
+    if (!category) {
+      console.warn("商品品类未能识别（不套用任何品类模板，按通用方式生成）:", productName);
     } else if (resolved.source !== "stored") {
       console.info(`商品品类自动识别为 ${category}（来源：${resolved.source}）`);
     }
@@ -185,7 +187,8 @@ export async function POST(req: NextRequest) {
     // Data flywheel (read side): pull the creator's real conversion feedback for this category.
     // Used two ways: (1) bias smart-recommend ("auto") mode toward the top-converting style,
     // (2) inject an advisory hint into the prompt so generated variants lean toward what sells.
-    const insights = useInsights ? await loadInsights(category) : { hint: "", topStyle: null };
+    // Category-scoped conversion feedback only exists once a category is known.
+    const insights = useInsights && category ? await loadInsights(category) : { hint: "", topStyle: null };
     if (useInsights && isAutoStyle && insights.topStyle) {
       styleType = normalizeStyle(insights.topStyle);
     }
@@ -269,7 +272,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ scripts: savedScripts, analysis });
+    // category/categorySource let the UI tell the user when auto-detection found nothing.
+    return NextResponse.json({ scripts: savedScripts, analysis, category, categorySource: resolved.source });
   } catch (error) {
     console.error("脚本生成失败:", error);
     // LLM failures carry an actionable bilingual message (bad key / dead free endpoint / rate limit)

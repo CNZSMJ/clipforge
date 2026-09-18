@@ -207,9 +207,13 @@ export function hookPatternName(id: string): string {
   return HOOK_PATTERNS.find((p) => p.id === id)?.name ?? id;
 }
 
-/** Category-preference hook selection: matched-category patterns first, then universal ones; deduplicated, top n returned */
-export function selectHookPatterns(category: ProductCategory, n = 5): HookPattern[] {
-  const matched = HOOK_PATTERNS.filter((p) => p.categories?.includes(category));
+/**
+ * Category-preference hook selection: matched-category patterns first, then universal ones;
+ * deduplicated, top n returned. A null category (nothing identified the product) gets the
+ * universal patterns only — never another category's preferred mechanisms.
+ */
+export function selectHookPatterns(category: ProductCategory | null, n = 5): HookPattern[] {
+  const matched = category ? HOOK_PATTERNS.filter((p) => p.categories?.includes(category)) : [];
   const universal = HOOK_PATTERNS.filter((p) => !p.categories);
   const seen = new Set<string>();
   const out: HookPattern[] = [];
@@ -228,7 +232,7 @@ export function selectHookPatterns(category: ProductCategory, n = 5): HookPatter
  * opening MUST use it — so each batch item gets a genuinely different hook mechanism instead of the
  * LLM free-picking the same favourite every time.
  */
-export function buildHookGuidance(category: ProductCategory, n = 5, pinnedHookId?: string): string {
+export function buildHookGuidance(category: ProductCategory | null, n = 5, pinnedHookId?: string): string {
   const pinned = pinnedHookId ? HOOK_PATTERNS.find((p) => p.id === pinnedHookId) : undefined;
   const patterns = pinned ? [pinned] : selectHookPatterns(category, n);
   const cards = patterns
@@ -251,7 +255,9 @@ export function buildHookGuidance(category: ProductCategory, n = 5, pinnedHookId
 ${
   pinned
     ? `本次开场【必须】优先使用以下钩子机制（反同质化轮换指定）；事实不足/模式不兼容时以真实问题替代，不捏造经历：`
-    : `为「${categoryNameMap[category] || category}」品类优选以下钩子机制（任选其一；若生成多个脚本，请各用不同机制以便 A/B 对比）：`
+    : category
+    ? `为「${categoryNameMap[category]}」品类优选以下钩子机制（任选其一；若生成多个脚本，请各用不同机制以便 A/B 对比）：`
+    : `商品品类未识别，从下列通用钩子机制中选择（任选其一；若生成多个脚本，请各用不同机制以便 A/B 对比）：`
 }
 
 ${cards}`;

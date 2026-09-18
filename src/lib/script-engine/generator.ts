@@ -574,6 +574,10 @@ export async function analyzeProduct(
         ],
         temperature: 0.3,
         max_tokens: 2000,
+        // The prompt specifies a JSON object (productName/category/sellingPoints/...).
+        // json_object mode makes that shape a transport-level guarantee instead of a hope;
+        // categoryFromAnalysis reads the "category" field and validates it against the enum.
+        ...jsonModeParams(config.baseUrl),
       }),
     { ...config, model },
   );

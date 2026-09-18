@@ -72,6 +72,8 @@ describe("model-specific cost and compatibility policy", () => {
     expect(new Headers(init?.headers).get("authorization")).toBe("Key FAL_TEST");
     const sent = JSON.parse(init?.body as string);
     expect(sent).toMatchObject({ model, max_tokens: 4096, reasoning: { effort: "low" } });
+    // the analysis prompt specifies a JSON object, so the call runs in JSON mode (Plan A)
+    expect(sent.response_format).toEqual({ type: "json_object" });
     expect(sent.messages[0].content.filter((p: { type: string }) => p.type === "image_url").map((p: { image_url: { url: string } }) => p.image_url.url)).toEqual(["https://example.com/a.png", "https://example.com/b.png"]);
   });
   it("real SDK applies medium reasoning to script requests without changing the prompt", async () => {

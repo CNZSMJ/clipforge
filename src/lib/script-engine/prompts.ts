@@ -4,7 +4,7 @@
  */
 
 import { categoryNameMap, type ProductCategory } from "./templates";
-import { categoryOptionsText, resolveProductCategory } from "@/lib/product-category";
+import { PRODUCT_CATEGORIES, categoryOptionsText, resolveProductCategory } from "@/lib/product-category";
 import { buildHookGuidance } from "./hook-patterns";
 import { COMMERCE_DIRECTION, TOPIC_DIRECTION, TOPIC_HOOK_DIRECTION, buildStoryboardDirection, buildCategoryVisualDirection, buildPlatformDirection } from "./storyboard-direction";
 import { cameraPresetGuide } from "@/lib/camera-presets";
@@ -311,7 +311,7 @@ export const PRODUCT_ANALYSIS_PROMPT = `你是一位专业的电商选品分析�
 请用 JSON 格式输出分析结果：
 {
   "productName": "商品名称",
-  "category": "beauty|food|home|fashion|tech",
+  "category": "${PRODUCT_CATEGORIES.join("|")}",
   "brand": "品牌名（未知则留空）",
   "visualFeatures": {
     "mainColor": "主色调",
@@ -336,8 +336,8 @@ export const PRODUCT_ANALYSIS_PROMPT = `你是一位专业的电商选品分析�
 export interface ScriptGenerationInput {
   /** product name */
   productName: string;
-  /** product category */
-  category: ProductCategory;
+  /** product category, or null when nothing identified it (no category block is injected) */
+  category: ProductCategory | null;
   /** product description / selling points */
   productDescription?: string;
   /** script style */
@@ -398,7 +398,7 @@ export function buildUserPrompt(input: ScriptGenerationInput): string {
     preferredHookId,
   } = input;
 
-  const categoryName = categoryNameMap[category];
+  const categoryName = category ? categoryNameMap[category] : null;
 
   // fetch style directive
   const styleDirective = styleType === "custom"
@@ -412,7 +412,13 @@ export function buildUserPrompt(input: ScriptGenerationInput): string {
   parts.push(`请为以下商品创作一条电商短视频带货脚本：`);
   parts.push(`\n【商品信息】`);
   parts.push(`- 商品名称：${productName}`);
-  parts.push(`- 商品品类：${categoryName}`);
+  // An unclassified product states that plainly instead of borrowing a default category's
+  // vocabulary; the model is told to reason from the given material only.
+  parts.push(
+    categoryName
+      ? `- 商品品类：${categoryName}`
+      : `- 商品品类：未识别（自动识别未命中；请只依据下方商品信息与图片分析判断，不要套用任何品类的固定套路，也不要假设是美妆护肤）`,
+  );
 
   if (productDescription) {
     parts.push(`- 商品描述/卖点：${productDescription}`);
@@ -470,8 +476,9 @@ export function buildUserPrompt(input: ScriptGenerationInput): string {
     }
   }
 
-  // append category-specific directive
-  parts.push(`\n${buildCategoryVisualDirection(category)}`);
+  // append category-specific directive; skipped entirely when the category is unknown, so no
+  // template's visual assumptions leak into a product nobody classified
+  if (category) parts.push(`\n${buildCategoryVisualDirection(category)}`);
 
   // append style directive
   parts.push(`\n${styleDirective}`);

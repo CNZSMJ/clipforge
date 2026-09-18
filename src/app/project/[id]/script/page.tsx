@@ -87,6 +87,9 @@ export default function ScriptPage() {
   const [judgeError, setJudgeError] = useState("");
   const [judgeApplying, setJudgeApplying] = useState(false);
   const [judgeApplied, setJudgeApplied] = useState(false);
+  // C: the product was not classified — say so instead of silently scripting it with a
+  // default category's template
+  const [categoryUnknown, setCategoryUnknown] = useState(false);
 
   // fetch real scripts by projectId (stored in the scripts table)
   const loadScripts = async () => {
@@ -180,6 +183,9 @@ export default function ScriptPage() {
         const e = await res.json().catch(() => ({}));
         throw new Error(e.error || t("errorGenFailedCheckLlm"));
       }
+      // the route reports whether auto-detection actually identified a category
+      const data = await res.json().catch(() => ({}));
+      setCategoryUnknown(data.categorySource === "unknown");
       await loadScripts();
     } catch (err) {
       setGenError(friendlyError(err, locale));
@@ -986,6 +992,12 @@ export default function ScriptPage() {
     );
   }
 
+  // Unclassified either because generation just reported it, or because scripts already exist
+  // for a project whose stored category is empty (the script was generated without one).
+  const categoryNotice =
+    projectMeta?.contentType !== "topic" &&
+    (categoryUnknown || (projectMeta?.category === "" && scripts.length > 0));
+
   return (
     <div className="min-h-screen grid-bg">
       {headerBar}
@@ -1013,6 +1025,14 @@ export default function ScriptPage() {
                 {t("pipelineRestart")}
               </Button>
             </div>
+          </div>
+        )}
+        {/* C: no category template was applied — tell the user and let them pick one, instead
+            of leaving them to wonder why the script reads generic */}
+        {categoryNotice && (
+          <div className="mx-auto mb-5 max-w-2xl rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+            <p className="text-sm font-medium text-amber-500">🏷️ {t("categoryUnknownTitle")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("categoryUnknownHint")}</p>
           </div>
         )}
         {uiMode === "simple" ? (

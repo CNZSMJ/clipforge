@@ -72,13 +72,15 @@ describe("product category resolution", () => {
     expect(resolved).toEqual({ category: "beauty", source: "stored" });
   });
 
-  it("prefers the analysis over keywords, and reports when nothing is identifiable", () => {
+  it("prefers the analysis over keywords, and reports an unknown instead of guessing", () => {
     expect(
       resolveProductCategory({ stored: "other", productName: "神秘礼盒", analysis: "- 所属品类：食品零食" })
     ).toEqual({ category: "food", source: "analysis" });
+    // no stored value, no analysis answer and no keyword hit: the answer is "not identified" —
+    // NOT 美妆护肤, which is what previously mis-scripted a tea product with the beauty template.
     expect(resolveProductCategory({ stored: "other", productName: "神秘礼盒" })).toEqual({
-      category: "beauty",
-      source: "fallback",
+      category: null,
+      source: "unknown",
     });
   });
 });
@@ -140,5 +142,72 @@ describe("single source of truth", () => {
     expect(categoryFromAnalysis("- 所属品类：母婴用品")).toBeNull();
     // an English sentence that merely mentions home is not an answer
     expect(categoryFromAnalysis("- 所属品类：suitable for the home")).toBeNull();
+  });
+});
+
+describe("structured analysis answer and the unclassified path", () => {
+  const JSON_REPLY = [
+    "{",
+    '  "productName": "菊花普洱茶礼盒",',
+    '  "category": "food",',
+    '  "sellingPoints": ["冷热3秒即溶"],',
+    '  "targetAudience": "办公室人群"',
+    "}",
+  ].join("\n");
+
+  it("reads the JSON category field the analysis prompt already specifies", async () => {
+    const { categoryFromAnalysis, categoryFromAnalysisJson, PRODUCT_CATEGORIES } = await import(
+      "@/lib/product-category"
+    );
+    expect(categoryFromAnalysisJson(JSON_REPLY)).toBe("food");
+    expect(categoryFromAnalysis(JSON_REPLY)).toBe("food");
+    // the enum pinned in the prompt's JSON contract is derived from PRODUCT_CATEGORIES, so the
+    // prompt can never ask for a key the parser would reject
+    const { PRODUCT_ANALYSIS_PROMPT } = await import("@/lib/script-engine/prompts");
+    expect(PRODUCT_ANALYSIS_PROMPT).toContain(`"category": "${PRODUCT_CATEGORIES.join("|")}"`);
+  });
+
+  it("does not mistake the echoed JSON placeholder for an answer", async () => {
+    const { categoryFromAnalysisJson, categoryFromAnalysis } = await import("@/lib/product-category");
+    expect(categoryFromAnalysisJson('{"category": "beauty|food|home|fashion|tech"}')).toBeNull();
+    expect(categoryFromAnalysis('{"category": "beauty|food|home|fashion|tech"}')).toBeNull();
+    expect(categoryFromAnalysisJson('{"category": "母婴用品"}')).toBeNull();
+    // a label instead of a key is tolerated, but only as an exact answer
+    expect(categoryFromAnalysisJson('{"category": "Food & snacks"}')).toBe("food");
+  });
+
+  it("prefers the structured field over a prose line", async () => {
+    const { resolveProductCategory } = await import("@/lib/product-category");
+    expect(
+      resolveProductCategory({ productName: "茶", analysis: JSON_REPLY + "\n- 所属品类：美妆护肤" })
+    ).toEqual({ category: "food", source: "analysis" });
+  });
+
+  it("injects no category block and says so when nothing identified the product", async () => {
+    const { buildUserPrompt } = await import("@/lib/script-engine/prompts");
+    const prompt = buildUserPrompt({
+      productName: "神秘礼盒",
+      category: null,
+      productDescription: "未知商品",
+      styleType: "pain_point",
+      targetDuration: 25,
+      videoMode: "product_closeup",
+    });
+    expect(prompt).toContain("商品品类：未识别");
+    // no category's visual evidence and no category's preferred hooks leak in
+    expect(prompt).not.toContain("【品类视觉证据】");
+    expect(prompt).not.toContain("品类优选以下钩子机制");
+    expect(prompt).toContain("商品品类未识别，从下列通用钩子机制中选择");
+    expect(prompt).not.toMatch(/商品品类：(美妆护肤|食品零食|家居日用|服饰鞋包|数码3C)/);
+  });
+
+  it("selects only universal hooks for an unclassified product", async () => {
+    const { selectHookPatterns, HOOK_PATTERNS } = await import("@/lib/script-engine/hook-patterns");
+    const picked = selectHookPatterns(null, 5);
+    expect(picked.length).toBeGreaterThan(0);
+    expect(picked.every((p) => !p.categories)).toBe(true);
+    // a known category still gets its preferred patterns first
+    expect(selectHookPatterns("beauty", 5)[0].categories).toContain("beauty");
+    expect(HOOK_PATTERNS.length).toBeGreaterThan(picked.length);
   });
 });
